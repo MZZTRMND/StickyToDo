@@ -275,7 +275,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 backing: .buffered,
                 defer: false
             )
-            aboutPanel.title = "About Sticky ToDo"
+            aboutPanel.title = "About StickyToDo"
             aboutPanel.isReleasedWhenClosed = false
             aboutPanel.contentView = hostingView
             aboutWindow = aboutPanel

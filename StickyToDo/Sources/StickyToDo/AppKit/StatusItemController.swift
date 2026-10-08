@@ -31,7 +31,7 @@ final class StatusItemController: NSObject {
         }
 
         let menu = NSMenu()
-        let aboutItem = NSMenuItem(title: "About Sticky ToDo", action: #selector(handleAbout), keyEquivalent: "")
+        let aboutItem = NSMenuItem(title: "About StickyToDo", action: #selector(handleAbout), keyEquivalent: "")
         aboutItem.target = self
         menu.addItem(aboutItem)
 
