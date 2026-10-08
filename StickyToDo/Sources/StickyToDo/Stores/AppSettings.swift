@@ -43,6 +43,13 @@ final class AppSettings: ObservableObject {
         }
     }
     @AppStorage(AppSettings.showCheckboxesKey) var showCheckboxes: Bool = true
+    /// Keeps the main window above other apps' windows. @Published because
+    /// AppDelegate applies it to the window's level when it changes.
+    @Published var isPinnedOnTop: Bool {
+        didSet {
+            UserDefaults.standard.set(isPinnedOnTop, forKey: Self.pinnedOnTopKey)
+        }
+    }
 
     var preferredColorScheme: ColorScheme? {
         switch appearance {
@@ -59,6 +66,7 @@ final class AppSettings: ObservableObject {
     private static let showInMenuBarKey = "StickyToDo.showInMenuBar"
     private static let taskFontSizeKey = "StickyToDo.taskFontSize"
     private static let showCheckboxesKey = "StickyToDo.showCheckboxes"
+    private static let pinnedOnTopKey = "StickyToDo.pinnedOnTop"
 
     private init() {
         let defaults = UserDefaults.standard
@@ -69,6 +77,7 @@ final class AppSettings: ObservableObject {
 
         launchAtLogin = storedBool(forKey: Self.launchAtLoginKey, default: false)
         showInMenuBar = storedBool(forKey: Self.showInMenuBarKey, default: true)
+        isPinnedOnTop = storedBool(forKey: Self.pinnedOnTopKey, default: false)
 
         let storedTaskFontSize = defaults.object(forKey: Self.taskFontSizeKey) == nil
             ? 18
