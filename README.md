@@ -6,7 +6,7 @@ A tiny floating to-do card for macOS. Today's tasks stay in view, quick add work
 
 ## Download
 
-**[Download the latest version](https://github.com/MZZTRMND/Sticky-ToDo/releases/latest)**
+**[Download the latest version](https://github.com/MZZTRMND/StickyToDo/releases/latest)**
 
 1. Unzip **StickyToDo-x.x.zip** and move **StickyToDo.app** to Applications.
 2. The app isn't notarized by Apple, so macOS blocks it the first time. Try to open it once, then go to **System Settings → Privacy & Security** and click **Open Anyway**.
