@@ -3,7 +3,7 @@ import SwiftUI
 struct AboutView: View {
     let versionText: String
     private let descriptionText =
-        "StickyToDo is a lightweight macOS desktop widget for daily tasks. It stays on top of your desktop, lets you quickly add, complete, delete, and edit tasks, and saves everything between sessions. Designed for speed and focus with a clean, minimal UI."
+        "StickyToDo is a tiny floating to-do card for macOS. It keeps today's tasks in view, lets you add one from anywhere with \(GlobalHotKeyManager.quickAddShortcutDisplay), and sorts them into categories. Everything stays on your Mac: no account, no cloud."
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
