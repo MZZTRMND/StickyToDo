@@ -181,6 +181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         window = panel
+        applyPinnedOnTop()
 
         // SwiftUI can report a stale fitting height on the very first layout
         // pass, before NSHostingView has had a chance to lay out its content -
@@ -236,6 +237,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.applyLaunchAtLoginPreference(isEnabled)
             }
             .store(in: &cancellables)
+
+        settings.$isPinnedOnTop
+            .dropFirst()
+            .sink { [weak self] _ in
+                // @Published fires before the stored value changes, so read
+                // it on the next run loop.
+                DispatchQueue.main.async {
+                    self?.applyPinnedOnTop()
+                }
+            }
+            .store(in: &cancellables)
+    }
+
+    /// Pinned, the card floats above other apps' windows (.floating);
+    /// unpinned, it's an ordinary window again (.normal - see configurePanel).
+    private func applyPinnedOnTop() {
+        window?.level = settings.isPinnedOnTop ? .floating : .normal
+    }
+
+    /// About and Settings open at the card's level, so a pinned card
+    /// can't end up covering them.
+    private func matchMainWindowLevel(_ auxiliaryWindow: NSWindow?) {
+        auxiliaryWindow?.level = window?.level ?? .normal
     }
 
     private func applyLaunchAtLoginPreference(_ enabled: Bool) {
@@ -282,6 +306,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         aboutWindow?.center()
+        matchMainWindowLevel(aboutWindow)
         aboutWindow?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -305,6 +330,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         settingsWindow?.center()
+        matchMainWindowLevel(settingsWindow)
         settingsWindow?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }

@@ -159,6 +159,26 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
+    /// Shown while the window is pinned on top; clicking it unpins.
+    private var pinnedIndicator: some View {
+        Button {
+            settings.isPinnedOnTop = false
+        } label: {
+            Image(systemName: "pin.fill")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Theme.secondaryText)
+                .frame(width: 32, height: 32)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Unpin")
+        .accessibilityLabel("Unpin from top")
+        .pointingHandCursorOnHover()
+        // Same offset as the "+" next to it, so their centers line up.
+        .padding(.top, -25)
+        .transition(.opacity.combined(with: .scale(scale: 0.8)))
+    }
+
     private func header(dayNumber: Int, date: Date) -> some View {
         ZStack {
             WindowDragView()
@@ -193,6 +213,10 @@ struct ContentView: View {
                 }
                 Spacer()
 
+                if settings.isPinnedOnTop {
+                    pinnedIndicator
+                }
+
                 Button(action: {
                     headerQuickAddTooltipTimer.cancel()
                     isHeaderQuickAddTooltipVisible = false
@@ -221,9 +245,13 @@ struct ContentView: View {
             }
             .frame(height: Layout.headerHeight, alignment: .top)
             .padding(.trailing, Layout.headerTrailingPadding)
+            .animation(.easeInOut(duration: 0.15), value: settings.isPinnedOnTop)
         }
         .frame(height: Layout.headerHeight, alignment: .top)
         .contextMenu {
+            // A Toggle renders as a native checkmarked menu item.
+            Toggle("Pin on Top", isOn: $settings.isPinnedOnTop)
+            Divider()
             Button("Quit") {
                 NSApplication.shared.terminate(nil)
             }
