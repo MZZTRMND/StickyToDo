@@ -1,0 +1,6 @@
+.build/
+.swiftpm/
+.DS_Store
+.claude/
+StickyToDo.app/
+StickyToDo-Test.app/

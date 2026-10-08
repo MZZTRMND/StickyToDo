@@ -24,6 +24,10 @@ struct WindowAccessor: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
+        // Check before dispatching, not inside: this runs on every SwiftUI
+        // update, and enqueuing a main-queue block each time is pure churn
+        // once the window is already known.
+        guard nsView.window == nil || nsView.window !== context.coordinator.lastWindow else { return }
         DispatchQueue.main.async {
             if let window = nsView.window {
                 guard context.coordinator.lastWindow !== window else { return }

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 final class TaskStore: ObservableObject {
@@ -21,29 +22,34 @@ final class TaskStore: ObservableObject {
 
     private let taskStorageKey = "StickyToDo.tasks"
     private let categoryStorageKey = "StickyToDo.categories"
+    private let userDefaults: UserDefaults
+    private let attachmentStore: AttachmentStore
     private var isLoading = false
     private var lastSavedTaskData: Data?
     private var lastSavedCategoryData: Data?
 
-    init() {
+    init(userDefaults: UserDefaults = .standard, attachmentStore: AttachmentStore = AttachmentStore()) {
+        self.userDefaults = userDefaults
+        self.attachmentStore = attachmentStore
         load()
         updateDerivedState()
     }
 
-    var activeTasks: [TaskItem] {
-        tasks.filter { $0.isDivider == false }
-    }
-
-    func addTask(title: String, categoryID: UUID? = nil) {
-        guard let trimmed = normalizedTitle(from: title) else { return }
-        tasks.insert(TaskItem(title: trimmed, categoryID: categoryID), at: 0)
+    @discardableResult
+    func addTask(title: String, categoryID: UUID? = nil, attachmentImage: NSImage? = nil) -> TaskItem? {
+        guard let trimmed = normalizedTitle(from: title) else { return nil }
+        var newTask = TaskItem(title: trimmed, categoryID: categoryID)
+        if let attachmentImage, let id = attachmentStore.save(attachmentImage) {
+            newTask.attachmentID = id
+        }
+        tasks.insert(newTask, at: 0)
+        return newTask
     }
 
     func toggleDone(for task: TaskItem) {
         guard let index = indexOfTask(task) else { return }
         tasks[index].isDone.toggle()
         if tasks[index].isDone {
-            tasks[index].isInProgress = false
             tasks[index].doneAt = Date()
         } else {
             tasks[index].doneAt = nil
@@ -51,6 +57,9 @@ final class TaskStore: ObservableObject {
     }
 
     func delete(_ task: TaskItem) {
+        if let attachmentID = task.attachmentID {
+            attachmentStore.delete(id: attachmentID)
+        }
         tasks.removeAll { $0.id == task.id }
     }
 
@@ -63,14 +72,6 @@ final class TaskStore: ObservableObject {
     func setImportant(_ isImportant: Bool, for task: TaskItem) {
         guard let index = indexOfTask(task) else { return }
         tasks[index].isImportant = isImportant
-    }
-
-    func setInProgress(_ isInProgress: Bool, for task: TaskItem) {
-        guard let index = indexOfTask(task) else { return }
-        tasks[index].isInProgress = isInProgress
-        if isInProgress {
-            tasks[index].isDone = false
-        }
     }
 
     func assignCategory(_ categoryID: UUID?, to task: TaskItem) {
@@ -126,14 +127,57 @@ final class TaskStore: ObservableObject {
         tasks.insert(item, at: adjustedIndex)
     }
 
+    func setAttachment(_ image: NSImage, for task: TaskItem) {
+        guard let index = indexOfTask(task) else { return }
+        if let oldID = tasks[index].attachmentID {
+            attachmentStore.delete(id: oldID)
+        }
+        guard let newID = attachmentStore.save(image) else { return }
+        tasks[index].attachmentID = newID
+    }
+
+    func removeAttachment(for task: TaskItem) {
+        guard let index = indexOfTask(task) else { return }
+        if let id = tasks[index].attachmentID {
+            attachmentStore.delete(id: id)
+        }
+        tasks[index].attachmentID = nil
+    }
+
+    func attachmentImage(for task: TaskItem) -> NSImage? {
+        guard let id = task.attachmentID else { return nil }
+        return attachmentStore.loadImage(for: id)
+    }
+
+    func openAttachment(for task: TaskItem) {
+        guard let id = task.attachmentID else { return }
+        NSWorkspace.shared.open(attachmentStore.url(for: id))
+    }
+
+    /// Removes completed tasks left over from a previous day, keeping today's
+    /// completed tasks visible. Returns the number of tasks removed.
+    @discardableResult
+    func purgeStaleCompletedTasks(referenceDate: Date = Date(), calendar: Calendar = .current) -> Int {
+        let staleIDs = tasks
+            .filter { task in
+                guard task.isDone else { return false }
+                guard let doneAt = task.doneAt else { return true }
+                return calendar.isDate(doneAt, inSameDayAs: referenceDate) == false
+            }
+            .map(\.id)
+        guard staleIDs.isEmpty == false else { return 0 }
+        let staleIDSet = Set(staleIDs)
+        tasks.removeAll { staleIDSet.contains($0.id) }
+        return staleIDs.count
+    }
+
     private func load() {
         isLoading = true
         defer { isLoading = false }
 
-        if let data = UserDefaults.standard.data(forKey: taskStorageKey) {
+        if let data = userDefaults.data(forKey: taskStorageKey) {
             do {
-                let decoded = try JSONDecoder().decode([TaskItem].self, from: data)
-                tasks = decoded.filter { $0.isDivider == false }
+                tasks = try JSONDecoder().decode([TaskItem].self, from: data)
             } catch {
                 tasks = []
             }
@@ -141,7 +185,7 @@ final class TaskStore: ObservableObject {
             tasks = []
         }
 
-        if let data = UserDefaults.standard.data(forKey: categoryStorageKey) {
+        if let data = userDefaults.data(forKey: categoryStorageKey) {
             do {
                 categories = try JSONDecoder().decode([TaskCategory].self, from: data)
             } catch {
@@ -160,6 +204,10 @@ final class TaskStore: ObservableObject {
             }
         }
 
+        if purgeStaleCompletedTasks() > 0 {
+            saveTasks()
+        }
+
         lastSavedTaskData = try? JSONEncoder().encode(tasks)
         lastSavedCategoryData = try? JSONEncoder().encode(categories)
     }
@@ -168,7 +216,7 @@ final class TaskStore: ObservableObject {
         do {
             let data = try JSONEncoder().encode(tasks)
             guard data != lastSavedTaskData else { return }
-            UserDefaults.standard.set(data, forKey: taskStorageKey)
+            userDefaults.set(data, forKey: taskStorageKey)
             lastSavedTaskData = data
         } catch {
             // Keep running without crashing.
@@ -179,7 +227,7 @@ final class TaskStore: ObservableObject {
         do {
             let data = try JSONEncoder().encode(categories)
             guard data != lastSavedCategoryData else { return }
-            UserDefaults.standard.set(data, forKey: categoryStorageKey)
+            userDefaults.set(data, forKey: categoryStorageKey)
             lastSavedCategoryData = data
         } catch {
             // Keep running without crashing.
@@ -189,7 +237,7 @@ final class TaskStore: ObservableObject {
     private func updateDerivedState() {
         var total = 0
         var completed = 0
-        for task in tasks where task.isDivider == false {
+        for task in tasks {
             total += 1
             if task.isDone {
                 completed += 1

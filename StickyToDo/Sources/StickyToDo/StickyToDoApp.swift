@@ -8,13 +8,5 @@ struct StickyToDoApp: App {
         Settings {
             EmptyView()
         }
-        .commands {
-            CommandMenu("Window") {
-                Button("Minimize / Expand") {
-                    WindowModeController.shared.requestToggle()
-                }
-                .keyboardShortcut("m", modifiers: [.command, .option])
-            }
-        }
     }
 }

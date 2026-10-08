@@ -1,6 +1,5 @@
 import AppKit
 import Combine
-import Carbon
 import ServiceManagement
 import SwiftUI
 
@@ -10,80 +9,155 @@ final class KeyablePanel: NSPanel {
     override var canBecomeMain: Bool { true }
 }
 
-private let quickAddHotKeySignature: OSType = 0x5354444F // "STDO"
-private let quickAddHotKeyID: UInt32 = 1
-
-private func stickyToDoGlobalHotKeyHandler(
-    _ nextHandler: EventHandlerCallRef?,
-    _ event: EventRef?,
-    _ userData: UnsafeMutableRawPointer?
-) -> OSStatus {
-    guard let userData, let event else { return OSStatus(eventNotHandledErr) }
-    let delegate = Unmanaged<AppDelegate>.fromOpaque(userData).takeUnretainedValue()
-
-    var hotKeyID = EventHotKeyID()
-    let status = GetEventParameter(
-        event,
-        EventParamName(kEventParamDirectObject),
-        EventParamType(typeEventHotKeyID),
-        nil,
-        MemoryLayout<EventHotKeyID>.size,
-        nil,
-        &hotKeyID
-    )
-    guard status == noErr else { return status }
-
-    if hotKeyID.signature == quickAddHotKeySignature && hotKeyID.id == quickAddHotKeyID {
-        delegate.handleGlobalQuickAddHotKey()
-        return noErr
-    }
-    return OSStatus(eventNotHandledErr)
-}
-
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let settings = AppSettings.shared
     private let store = TaskStore()
-    private let windowModeController = WindowModeController.shared
-    private var statusItem: NSStatusItem?
+    // Owned here rather than by ContentView so quick-add (which lives in its
+    // own overlay window) can see which category tab is selected.
+    private let categoryUI = CategoryUIState()
+    private lazy var statusItemController = StatusItemController(
+        aboutAction: { [weak self] in self?.showAbout() },
+        preferenceAction: { [weak self] in self?.showPreference() },
+        quitAction: { [weak self] in self?.quitApp() }
+    )
+    private let hotKeyManager = GlobalHotKeyManager()
     private var window: NSWindow?
     private var settingsWindow: NSWindow?
     private var aboutWindow: NSWindow?
     private var quickAddWindow: NSPanel?
-    private var windowMode: WindowMode = .full
-    private var fullWindowFrame: NSRect?
     private var hostingView: NSHostingView<AnyView>?
     private var cancellables: Set<AnyCancellable> = []
-    private var hotKeyRef: EventHotKeyRef?
-    private var hotKeyHandlerRef: EventHandlerRef?
 
     deinit {
-        unregisterGlobalHotKey()
+        hotKeyManager.unregister()
         NotificationCenter.default.removeObserver(self)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
-        configureStatusItemIfNeeded()
+        installMainMenu()
+        updateStatusItemVisibility()
         bindSettingsObservers()
         applyLaunchAtLoginPreference(settings.launchAtLogin)
         createWindow()
-        registerGlobalHotKey()
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(toggleMinimizeMode),
-            name: .stickyToDoToggleWindowMode,
-            object: nil
-        )
+        hotKeyManager.onTriggered = { [weak self] in self?.presentOrFocusQuickAddOverlay() }
+        if hotKeyManager.register() == false {
+            presentErrorAlert(
+                title: "Quick Add Shortcut Unavailable",
+                message: "StickyToDo couldn't register \(GlobalHotKeyManager.quickAddShortcutDisplay) as a global shortcut. Another app may already be using it."
+            )
+        }
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(presentQuickAddFromInAppRequest),
             name: .stickyToDoPresentQuickAddRequested,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAppDidBecomeActive),
+            name: NSApplication.didBecomeActiveNotification,
+            object: nil
+        )
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        unregisterGlobalHotKey()
+        hotKeyManager.unregister()
+    }
+
+    /// macOS treats the first submenu of mainMenu as the Application menu,
+    /// regardless of its title. Building it by hand is required here because
+    /// the app supplies its own mainMenu (a plain SwiftUI App with an
+    /// NSApplicationDelegateAdaptor doesn't get the standard one), and
+    /// without an Application menu a .regular app has no About/Settings entry
+    /// and no working Hide or Quit - those shortcuts are menu bindings, not
+    /// built-in key handling.
+    private func installMainMenu() {
+        let appName = "StickyToDo"
+        let mainMenu = NSMenu()
+
+        let appMenuItem = NSMenuItem()
+        mainMenu.addItem(appMenuItem)
+        let appMenu = NSMenu()
+        appMenuItem.submenu = appMenu
+
+        let aboutItem = appMenu.addItem(
+            withTitle: "About \(appName)",
+            action: #selector(showAboutFromMenu),
+            keyEquivalent: ""
+        )
+        aboutItem.target = self
+
+        appMenu.addItem(.separator())
+
+        let settingsItem = appMenu.addItem(
+            withTitle: "Settings\u{2026}",
+            action: #selector(showPreferenceFromMenu),
+            keyEquivalent: ","
+        )
+        settingsItem.target = self
+
+        appMenu.addItem(.separator())
+
+        // nil target: these resolve up the responder chain to NSApplication.
+        appMenu.addItem(
+            withTitle: "Hide \(appName)",
+            action: #selector(NSApplication.hide(_:)),
+            keyEquivalent: "h"
+        )
+        let hideOthersItem = appMenu.addItem(
+            withTitle: "Hide Others",
+            action: #selector(NSApplication.hideOtherApplications(_:)),
+            keyEquivalent: "h"
+        )
+        hideOthersItem.keyEquivalentModifierMask = [.command, .option]
+        appMenu.addItem(
+            withTitle: "Show All",
+            action: #selector(NSApplication.unhideAllApplications(_:)),
+            keyEquivalent: ""
+        )
+
+        appMenu.addItem(.separator())
+
+        appMenu.addItem(
+            withTitle: "Quit \(appName)",
+            action: #selector(NSApplication.terminate(_:)),
+            keyEquivalent: "q"
+        )
+
+        let editMenuItem = NSMenuItem()
+        mainMenu.addItem(editMenuItem)
+        let editMenu = NSMenu(title: "Edit")
+        editMenuItem.submenu = editMenu
+
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        let redoItem = NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
+        redoItem.keyEquivalentModifierMask = [.command, .shift]
+        editMenu.addItem(redoItem)
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+
+        NSApp.mainMenu = mainMenu
+    }
+
+    @objc private func showAboutFromMenu() {
+        showAbout()
+    }
+
+    @objc private func showPreferenceFromMenu() {
+        showPreference()
+    }
+
+    /// Clicking the Dock icon should bring the widget back rather than do
+    /// nothing - the window has no close button, but it can be hidden (\u{2318}H)
+    /// or left behind on another Space.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        window?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        return true
     }
 
     private func createWindow() {
@@ -99,23 +173,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             defer: false
         )
         configurePanel(panel, hostingView: rootHostingView)
+        panel.minSize = NSSize(width: 350, height: 200)
+        panel.maxSize = NSSize(width: 600, height: 600)
         panel.center()
+        let targetSize = preferredWindowSize(fallback: panel.frame.size)
+        panel.setFrame(centeredFrame(from: panel.frame, targetSize: targetSize), display: true)
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         window = panel
-        applyWindowMode(animated: false)
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(mainWindowVisibilityDidChange),
-            name: NSWindow.didBecomeKeyNotification,
-            object: panel
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(mainWindowVisibilityDidChange),
-            name: NSWindow.didResignKeyNotification,
-            object: panel
-        )
+
+        // SwiftUI can report a stale fitting height on the very first layout
+        // pass, before NSHostingView has had a chance to lay out its content -
+        // re-check on the next run loop to avoid an undersized window.
+        DispatchQueue.main.async { [weak self] in
+            self?.refreshWindowSizeIfNeeded(animated: false)
+        }
     }
 
     private func configurePanel(_ panel: NSPanel, hostingView: NSView) {
@@ -123,11 +195,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         panel.backgroundColor = .clear
         panel.hasShadow = true
         panel.hidesOnDeactivate = false
-        panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.level = .normal
+        // No special collectionBehavior at all - this should behave exactly
+        // like a regular window (e.g. Finder): it belongs to whichever
+        // single Space it's on, doesn't follow when you switch Spaces, and
+        // isn't part of another app's dedicated fullscreen Space.
+        panel.collectionBehavior = []
         panel.titleVisibility = .hidden
         panel.titlebarAppearsTransparent = true
-        panel.isMovableByWindowBackground = true
+        // Dragging is handled by DragView calling performDrag(with:) itself
+        // (see WindowDragView.swift) rather than through this window-wide
+        // background-drag switch, which used to be toggled on hover and
+        // could get stuck disabled if a hover-exit event was ever missed.
+        panel.isMovableByWindowBackground = false
         panel.standardWindowButton(.closeButton)?.isHidden = true
         panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
         panel.standardWindowButton(.zoomButton)?.isHidden = true
@@ -135,52 +215,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
 
-    private func configureStatusItemIfNeeded() {
-        guard settings.showInMenuBar else {
-            if let item = statusItem {
-                NSStatusBar.system.removeStatusItem(item)
-                statusItem = nil
-            }
-            return
-        }
-        guard statusItem == nil else { return }
-
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        if let button = item.button {
-            button.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: "StickyToDo")
-        }
-
-        let menu = NSMenu()
-        let aboutItem = NSMenuItem(title: "About Sticky ToDo", action: #selector(showAbout), keyEquivalent: "")
-        aboutItem.target = self
-        menu.addItem(aboutItem)
-
-        menu.addItem(.separator())
-
-        let settingsItem = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
-        settingsItem.target = self
-        menu.addItem(settingsItem)
-
-        menu.addItem(.separator())
-
-        let quitItem = NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q")
-        quitItem.target = self
-        menu.addItem(quitItem)
-
-        item.menu = menu
-        statusItem = item
+    private func updateStatusItemVisibility() {
+        statusItemController.setVisible(settings.showInMenuBar)
     }
 
     private func bindSettingsObservers() {
         settings.$showInMenuBar
             .dropFirst()
-            .sink { [weak self] isVisible in
+            .sink { [weak self] _ in
                 guard let self else { return }
-                if isVisible {
-                    self.configureStatusItemIfNeeded()
-                } else if let item = self.statusItem {
-                    NSStatusBar.system.removeStatusItem(item)
-                    self.statusItem = nil
+                DispatchQueue.main.async {
+                    self.updateStatusItemVisibility()
                 }
             }
             .store(in: &cancellables)
@@ -191,42 +236,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.applyLaunchAtLoginPreference(isEnabled)
             }
             .store(in: &cancellables)
-
-        settings.$showCompletedTasks
-            .dropFirst()
-            .sink { [weak self] _ in
-                self?.refreshCompactWindowSizeIfNeeded(animated: true)
-            }
-            .store(in: &cancellables)
-
-        store.$tasks
-            .dropFirst()
-            .sink { [weak self] _ in
-                self?.refreshCompactWindowSizeIfNeeded(animated: true)
-            }
-            .store(in: &cancellables)
     }
 
     private func applyLaunchAtLoginPreference(_ enabled: Bool) {
+        guard settings.canManageLaunchAtLogin else { return }
+
+        let service = SMAppService.mainApp
         do {
             if enabled {
-                if SMAppService.mainApp.status != .enabled {
-                    try SMAppService.mainApp.register()
+                if service.status != .enabled {
+                    try service.register()
                 }
-            } else if SMAppService.mainApp.status == .enabled {
-                try SMAppService.mainApp.unregister()
+            } else if service.status == .enabled {
+                try service.unregister()
             }
         } catch {
             // Keep the toggle consistent with the real system status.
             // This can fail in some unsigned/dev execution contexts.
-            let syncedValue = (SMAppService.mainApp.status == .enabled)
+            let syncedValue = (service.status == .enabled)
             if settings.launchAtLogin != syncedValue {
                 settings.launchAtLogin = syncedValue
             }
+            presentErrorAlert(
+                title: "Launch at Login Unavailable",
+                message: "StickyToDo couldn't change the Launch at Login setting. You can also manage this from System Settings \u{2192} General \u{2192} Login Items."
+            )
         }
     }
 
-    @objc private func showAbout() {
+    private func showAbout() {
         if aboutWindow == nil {
             let hostingView = NSHostingView(
                 rootView: AboutView(versionText: appVersionText)
@@ -248,19 +286,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    @objc private func showSettings() {
+    private func showPreference() {
         if settingsWindow == nil {
             let hostingView = NSHostingView(
                 rootView: SettingsView()
                     .environmentObject(settings)
             )
             let settingsPanel = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+                contentRect: NSRect(x: 0, y: 0, width: 400, height: 400),
                 styleMask: [.titled, .closable],
                 backing: .buffered,
                 defer: false
             )
-            settingsPanel.title = "Settings"
+            settingsPanel.title = "Preference"
             settingsPanel.isReleasedWhenClosed = false
             settingsPanel.contentView = hostingView
             settingsWindow = settingsPanel
@@ -271,99 +309,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    @objc private func toggleMinimizeMode() {
-        setWindowMode(windowMode == .full ? .compact : .full, animated: true)
-    }
-
-    @objc private func mainWindowVisibilityDidChange() {
-        // Reserved for future window-state menu sync.
-    }
-
     @objc private func presentQuickAddFromInAppRequest() {
         presentOrFocusQuickAddOverlay()
     }
 
-    private func setWindowMode(_ mode: WindowMode, animated: Bool) {
-        guard mode != windowMode else { return }
-        if mode == .compact, let window {
-            fullWindowFrame = window.frame
-        }
-        windowMode = mode
-        windowModeController.mode = mode
-        applyWindowMode(animated: animated)
+    @objc private func handleAppDidBecomeActive() {
+        _ = store.purgeStaleCompletedTasks()
     }
 
-    private func applyWindowMode(animated: Bool) {
-        guard let window else { return }
-        let currentFrame = window.frame
-        let targetFrame: NSRect
-        var shouldRefreshFullSizeOnNextRunLoop = false
-        switch windowMode {
-        case .full:
-            window.styleMask.insert(.resizable)
-            window.minSize = NSSize(width: 350, height: 200)
-            window.maxSize = NSSize(width: 600, height: 600)
-            setRootView(for: .full)
-            let targetSize = preferredFullWindowSize(fallback: currentFrame.size)
-            targetFrame = centeredFrame(from: currentFrame, targetSize: targetSize)
-            shouldRefreshFullSizeOnNextRunLoop = true
-        case .compact:
-            window.styleMask.remove(.resizable)
-            let compactSize = currentCompactWindowSize()
-            window.minSize = compactSize
-            window.maxSize = compactSize
-            setRootView(for: .compact)
-            targetFrame = centeredFrame(from: currentFrame, targetSize: compactSize)
-        }
-
-        if animated {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.16
-                window.animator().setFrame(targetFrame, display: true)
-            }
-        } else {
-            window.setFrame(targetFrame, display: true)
-        }
-
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-
-        // SwiftUI can report a stale fitting height immediately after switching
-        // from compact -> full. Re-check on the next run loop to avoid clipping.
-        if shouldRefreshFullSizeOnNextRunLoop {
-            DispatchQueue.main.async { [weak self] in
-                self?.refreshFullWindowSizeIfNeeded(animated: animated)
-            }
-        }
-    }
-
-    private func preferredFullWindowSize(fallback: NSSize) -> NSSize {
-        let savedSize = fullWindowFrame?.size ?? fallback
-
+    private func preferredWindowSize(fallback: NSSize) -> NSSize {
         let minWidth: CGFloat = 350
         let maxWidth: CGFloat = 600
         let minHeight: CGFloat = 200
         let maxHeight: CGFloat = 600
 
-        let width = min(max(savedSize.width, minWidth), maxWidth)
+        let width = min(max(fallback.width, minWidth), maxWidth)
 
         hostingView?.layoutSubtreeIfNeeded()
         let fittingHeight = hostingView?.fittingSize.height ?? 0
-        let desiredHeight = max(savedSize.height, fittingHeight)
+        // Follow the content in both directions. This was
+        // max(fallback.height, fittingHeight), which ratcheted: the window
+        // could grow for a longer list but never shrink back for a shorter
+        // one. Fall back to the current height only when the content hasn't
+        // been laid out yet and reports nothing.
+        let desiredHeight = fittingHeight > 0 ? fittingHeight : fallback.height
         let height = min(max(desiredHeight, minHeight), maxHeight)
 
         return NSSize(width: width, height: height)
     }
 
-    private func refreshFullWindowSizeIfNeeded(animated: Bool) {
-        guard windowMode == .full, let window else { return }
+    private func refreshWindowSizeIfNeeded(animated: Bool) {
+        guard let window else { return }
 
-        let targetSize = preferredFullWindowSize(fallback: window.frame.size)
+        let targetSize = preferredWindowSize(fallback: window.frame.size)
         guard abs(targetSize.width - window.frame.width) > 0.5 || abs(targetSize.height - window.frame.height) > 0.5 else {
             return
         }
 
-        let targetFrame = centeredFrame(from: window.frame, targetSize: targetSize)
+        // Anchored at the top-left, unlike the initial centred placement:
+        // re-centring on every resize would walk the window around the
+        // screen as the list grows and shrinks. Growing downward from a
+        // fixed corner is what a normal window does.
+        let targetFrame = NSRect(
+            x: window.frame.minX,
+            y: window.frame.maxY - targetSize.height,
+            width: targetSize.width,
+            height: targetSize.height
+        )
         if animated {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.12
@@ -371,43 +363,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         } else {
             window.setFrame(targetFrame, display: true)
-        }
-    }
-
-    private func currentCompactWindowSize() -> NSSize {
-        let visibleTasks = settings.showCompletedTasks ? store.activeTasks : store.activeTasks.filter { $0.isDone == false }
-        let previewCount = min(3, visibleTasks.count)
-        let showsOverflowIndicator = visibleTasks.count > 3
-        return CompactCounterView.compactWindowSize(
-            previewCount: previewCount,
-            showsOverflowIndicator: showsOverflowIndicator
-        )
-    }
-
-    private func refreshCompactWindowSizeIfNeeded(animated: Bool) {
-        guard windowMode == .compact, let window else { return }
-        let targetSize = currentCompactWindowSize()
-        guard window.frame.size != targetSize else { return }
-
-        window.minSize = targetSize
-        window.maxSize = targetSize
-        let targetFrame = centeredFrame(from: window.frame, targetSize: targetSize)
-        if animated {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.16
-                window.animator().setFrame(targetFrame, display: true)
-            }
-        } else {
-            window.setFrame(targetFrame, display: true)
-        }
-    }
-
-    private func setRootView(for mode: WindowMode) {
-        switch mode {
-        case .full:
-            hostingView?.rootView = AnyView(fullRootView())
-        case .compact:
-            hostingView?.rootView = AnyView(compactRootView())
         }
     }
 
@@ -426,69 +381,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         RootContentView()
             .environmentObject(settings)
             .environmentObject(store)
-            .environmentObject(windowModeController)
+            .environmentObject(categoryUI)
     }
 
-    private func compactRootView() -> some View {
-        RootCompactView {
-            self.setWindowMode(.full, animated: true)
-        }
-        .environmentObject(settings)
-        .environmentObject(store)
-        .environmentObject(windowModeController)
-    }
-
-    @objc private func quitApp() {
+    private func quitApp() {
         NSApplication.shared.terminate(nil)
     }
 
-    private func registerGlobalHotKey() {
-        unregisterGlobalHotKey()
-
-        var eventType = EventTypeSpec(
-            eventClass: OSType(kEventClassKeyboard),
-            eventKind: OSType(kEventHotKeyPressed)
-        )
-
-        let userData = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
-        let installStatus = InstallEventHandler(
-            GetEventDispatcherTarget(),
-            stickyToDoGlobalHotKeyHandler,
-            1,
-            &eventType,
-            userData,
-            &hotKeyHandlerRef
-        )
-        guard installStatus == noErr else { return }
-
-        let hotKeyID = EventHotKeyID(signature: quickAddHotKeySignature, id: quickAddHotKeyID)
-        let modifierFlags = UInt32(cmdKey | optionKey)
-        let registerStatus = RegisterEventHotKey(
-            UInt32(kVK_ANSI_N),
-            modifierFlags,
-            hotKeyID,
-            GetEventDispatcherTarget(),
-            0,
-            &hotKeyRef
-        )
-        if registerStatus != noErr {
-            unregisterGlobalHotKey()
-        }
-    }
-
-    fileprivate func handleGlobalQuickAddHotKey() {
-        presentOrFocusQuickAddOverlay()
-    }
-
-    private func unregisterGlobalHotKey() {
-        if let hotKeyRef {
-            UnregisterEventHotKey(hotKeyRef)
-            self.hotKeyRef = nil
-        }
-        if let hotKeyHandlerRef {
-            RemoveEventHandler(hotKeyHandlerRef)
-            self.hotKeyHandlerRef = nil
-        }
+    private func presentErrorAlert(title: String, message: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = title
+        alert.informativeText = message
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     private func presentOrFocusQuickAddOverlay() {
@@ -523,13 +429,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         overlay.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
 
         let content = QuickAddOverlayView(
-            onSubmit: { [weak self] title in
-                self?.store.addTask(title: title)
+            onSubmit: { [weak self] title, categoryID, image in
+                guard let self else { return }
+                self.store.addTask(title: title, categoryID: categoryID, attachmentImage: image)
+                self.categoryUI.revealNewTask(inCategory: categoryID)
             },
             onClose: { [weak self] in
                 self?.closeQuickAddOverlay()
             }
         )
+        .environmentObject(store)
+        .environmentObject(categoryUI)
         .preferredColorScheme(settings.preferredColorScheme)
 
         let host = NSHostingView(rootView: AnyView(content))
@@ -575,16 +485,6 @@ private struct RootContentView: View {
     var body: some View {
         ContentView()
             .environmentObject(store)
-            .preferredColorScheme(settings.preferredColorScheme)
-    }
-}
-
-private struct RootCompactView: View {
-    @EnvironmentObject private var settings: AppSettings
-    let onExpand: () -> Void
-
-    var body: some View {
-        CompactCounterView(onExpand: onExpand)
             .preferredColorScheme(settings.preferredColorScheme)
     }
 }

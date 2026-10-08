@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -7,7 +8,7 @@ struct ReorderDropDelegate: DropDelegate {
     @Binding var draggingId: UUID?
 
     func validateDrop(info: DropInfo) -> Bool {
-        info.hasItemsConforming(to: [UTType.text])
+        info.hasItemsConforming(to: [UTType.text, UTType.image])
     }
 
     func dropEntered(info: DropInfo) {
@@ -18,11 +19,24 @@ struct ReorderDropDelegate: DropDelegate {
     }
 
     func performDrop(info: DropInfo) -> Bool {
+        if info.hasItemsConforming(to: [UTType.image]),
+           let provider = info.itemProviders(for: [UTType.image]).first {
+            ImageItemProviderLoader.loadImage(from: provider) { image in
+                guard let image else { return }
+                DispatchQueue.main.async {
+                    store.setAttachment(image, for: target)
+                }
+            }
+            return true
+        }
         draggingId = nil
         return true
     }
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
+        if info.hasItemsConforming(to: [UTType.image]) {
+            return DropProposal(operation: .copy)
+        }
         return DropProposal(operation: .move)
     }
 }
