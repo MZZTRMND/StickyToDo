@@ -9,6 +9,7 @@ DerivedData/
 *.app/
 
 # SwiftPM
+.swiftpm/
 Package.resolved
 
 # Xcode playgrounds

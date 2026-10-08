@@ -2,9 +2,9 @@
 
 A tiny floating to-do card for macOS. Today's tasks stay in view, quick add works from anywhere with `⌥⌘N`, and everything stays on your Mac.
 
-<!-- Absolute URL so the image resolves from both the repo-root README and StickyToDo/README.md. width = half the @2x pixels, i.e. true size. -->
+<!-- width = half the @2x pixels, i.e. true size. -->
 <p align="center">
-  <img src="https://raw.githubusercontent.com/MZZTRMND/StickyToDo/main/StickyToDo/docs/screenshot.png" width="466" alt="StickyToDo showing today's date, category tabs, and a short task list">
+  <img src="docs/screenshot.png" width="466" alt="StickyToDo showing today's date, category tabs, and a short task list">
 </p>
 
 ## Download
@@ -38,7 +38,6 @@ Requires macOS 26 or later on an Apple Silicon Mac.
 Requires Xcode 26 (Swift 6.2).
 
 ```bash
-cd StickyToDo
 swift build
 swift run
 ```
