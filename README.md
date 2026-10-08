@@ -2,7 +2,10 @@
 
 A tiny floating to-do card for macOS. Today's tasks stay in view, quick add works from anywhere with `⌥⌘N`, and everything stays on your Mac.
 
-<!-- Screenshot goes here: ![StickyToDo](docs/screenshot.png) -->
+<!-- Absolute URL so the image resolves from both the repo-root README and StickyToDo/README.md. width = half the @2x pixels, i.e. true size. -->
+<p align="center">
+  <img src="https://raw.githubusercontent.com/MZZTRMND/StickyToDo/main/StickyToDo/docs/screenshot.png" width="466" alt="StickyToDo showing today's date, category tabs, and a short task list">
+</p>
 
 ## Download
 
