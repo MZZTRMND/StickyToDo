@@ -34,7 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.setActivationPolicy(.regular)
+        NSApp.setActivationPolicy(dockActivationPolicy)
         installMainMenu()
         updateStatusItemVisibility()
         bindSettingsObservers()
@@ -238,6 +238,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &cancellables)
 
+        settings.$showInDock
+            .dropFirst()
+            .sink { [weak self] _ in
+                // Same as below: read the new value on the next run loop.
+                DispatchQueue.main.async {
+                    self?.applyShowInDock()
+                }
+            }
+            .store(in: &cancellables)
+
         settings.$isPinnedOnTop
             .dropFirst()
             .sink { [weak self] _ in
@@ -248,6 +258,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
             .store(in: &cancellables)
+    }
+
+    /// .regular: Dock icon, ⌘Tab, menu bar menus. .accessory: none of
+    /// those - the app lives in the menu bar icon and the quick-add shortcut.
+    private var dockActivationPolicy: NSApplication.ActivationPolicy {
+        settings.showInDock ? .regular : .accessory
+    }
+
+    private func applyShowInDock() {
+        NSApp.setActivationPolicy(dockActivationPolicy)
+        // Changing policy at runtime can leave the app deactivated with its
+        // windows behind others, so bring back the card and, since this is
+        // toggled from there, the Settings window.
+        NSApp.activate(ignoringOtherApps: true)
+        window?.orderFront(nil)
+        if settingsWindow?.isVisible == true {
+            settingsWindow?.makeKeyAndOrderFront(nil)
+        }
     }
 
     /// Pinned, the card floats above other apps' windows (.floating);

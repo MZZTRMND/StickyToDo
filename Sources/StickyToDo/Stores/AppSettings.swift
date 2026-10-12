@@ -37,6 +37,14 @@ final class AppSettings: ObservableObject {
             UserDefaults.standard.set(showInMenuBar, forKey: Self.showInMenuBarKey)
         }
     }
+    /// Off makes this a menu-bar-only app: no Dock icon, no ⌘Tab entry, no
+    /// menu bar menus. It and showInMenuBar can't both be off - Settings
+    /// disables whichever toggle is the last way back into the app.
+    @Published var showInDock: Bool {
+        didSet {
+            UserDefaults.standard.set(showInDock, forKey: Self.showInDockKey)
+        }
+    }
     @Published var taskFontSize: Double {
         didSet {
             UserDefaults.standard.set(taskFontSize, forKey: Self.taskFontSizeKey)
@@ -64,6 +72,7 @@ final class AppSettings: ObservableObject {
     private static let appearanceKey = "StickyToDo.appearance"
     private static let launchAtLoginKey = "StickyToDo.launchAtLogin"
     private static let showInMenuBarKey = "StickyToDo.showInMenuBar"
+    private static let showInDockKey = "StickyToDo.showInDock"
     private static let taskFontSizeKey = "StickyToDo.taskFontSize"
     private static let showCheckboxesKey = "StickyToDo.showCheckboxes"
     private static let pinnedOnTopKey = "StickyToDo.pinnedOnTop"
@@ -77,12 +86,19 @@ final class AppSettings: ObservableObject {
 
         launchAtLogin = storedBool(forKey: Self.launchAtLoginKey, default: false)
         showInMenuBar = storedBool(forKey: Self.showInMenuBarKey, default: true)
+        showInDock = storedBool(forKey: Self.showInDockKey, default: true)
         isPinnedOnTop = storedBool(forKey: Self.pinnedOnTopKey, default: false)
 
         let storedTaskFontSize = defaults.object(forKey: Self.taskFontSizeKey) == nil
             ? 18
             : defaults.double(forKey: Self.taskFontSizeKey)
         taskFontSize = (18...32).contains(storedTaskFontSize) ? storedTaskFontSize : 18
+
+        // Never start with no way back in (e.g. if the stored values were
+        // edited by hand).
+        if showInDock == false && showInMenuBar == false {
+            showInMenuBar = true
+        }
     }
 
     private var supportsBundledSystemFeatures: Bool {
