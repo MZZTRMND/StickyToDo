@@ -272,15 +272,11 @@ struct TaskRow<RowMenu: View>: View {
             }
 
             if let categoryBadge {
-                HStack(spacing: 3) {
-                    Image(systemName: "folder")
-                        .font(.system(size: 12, weight: .regular))
-                    Text(categoryBadge.name)
-                        .font(.system(size: 12, weight: .regular))
-                        .lineLimit(1)
-                }
-                .foregroundStyle(metaLineColor)
-                .help(categoryBadge.name)
+                Text(categoryBadge.name)
+                    .font(.system(size: 12, weight: .regular))
+                    .lineLimit(1)
+                    .foregroundStyle(metaLineColor)
+                    .help(categoryBadge.name)
             }
         }
     }
