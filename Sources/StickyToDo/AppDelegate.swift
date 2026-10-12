@@ -318,16 +318,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func showAbout() {
         if aboutWindow == nil {
-            let hostingView = NSHostingView(
-                rootView: AboutView(versionText: appVersionText)
-            )
+            let hostingView = NSHostingView(rootView: AboutView())
+            // A hidden title bar over the content, like Cubby's About window
+            // (SwiftUI's .hiddenTitleBar): the traffic lights stay, the title
+            // text and bar background go. Not resizable, so zoom is disabled.
             let aboutPanel = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 380, height: 220),
-                styleMask: [.titled, .closable],
+                contentRect: NSRect(origin: .zero, size: hostingView.fittingSize),
+                styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
                 backing: .buffered,
                 defer: false
             )
-            aboutPanel.title = "About StickyToDo"
+            aboutPanel.title = "About StickyToDo"   // still used by Mission Control and VoiceOver
+            aboutPanel.titleVisibility = .hidden
+            aboutPanel.titlebarAppearsTransparent = true
+            aboutPanel.isMovableByWindowBackground = true
             aboutPanel.isReleasedWhenClosed = false
             aboutPanel.contentView = hostingView
             aboutWindow = aboutPanel
@@ -522,11 +526,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return window?.screen ?? NSScreen.main ?? NSScreen.screens.first
     }
 
-    private var appVersionText: String {
-        let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
-        return "Version \(short) (\(build))"
-    }
 }
 
 extension Notification.Name {
