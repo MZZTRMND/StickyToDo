@@ -1,24 +1,36 @@
 import SwiftUI
 
+/// The About StickyToDo window: icon, name, version and a link to the
+/// project. Same layout as the About window in Cubby.
 struct AboutView: View {
-    let versionText: String
-    private let descriptionText =
-        "StickyToDo is a tiny floating to-do card for macOS. It keeps today's tasks in view, lets you add one from anywhere with \(GlobalHotKeyManager.quickAddShortcutDisplay), and sorts them into categories. Everything stays on your Mac: no account, no cloud."
+    private var version: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "–"
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(spacing: 0) {
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .frame(width: 96, height: 96)
+                .padding(.bottom, 12)
             Text("StickyToDo")
-                .font(.system(size: 20, weight: .semibold))
-
-            Text(versionText)
-                .font(.system(size: 12, weight: .regular))
+                .font(.title2.weight(.semibold))
+            Text("Version \(version)")
+                .font(.callout)
                 .foregroundStyle(.secondary)
-
-            Text(descriptionText)
-                .font(.system(size: 13, weight: .regular))
-                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 2)
+            Text("A tiny floating to-do card for your desktop.")
+                .font(.callout)
+                .multilineTextAlignment(.center)
+                .padding(.top, 14)
+            Link("github.com/MZZTRMND/StickyToDo", destination: URL(string: "https://github.com/MZZTRMND/StickyToDo")!)
+                .font(.callout)
+                .padding(.top, 10)
         }
-        .padding(16)
-        .frame(width: 380)
+        .padding(.horizontal, 40)
+        .padding(.top, 28)
+        .padding(.bottom, 32)
+        .frame(width: 300)
+        .fixedSize()
     }
 }
