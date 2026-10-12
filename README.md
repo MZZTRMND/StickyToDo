@@ -54,6 +54,9 @@ StickyToDo/
 │   ├── Support/    # Theme and small utilities
 │   └── Views/      # Main window, quick add, settings
 ├── Tests/StickyToDoTests/
+├── Assets/
+│   └── AppIcon.svg          # App icon source
 └── Scripts/
+    ├── make-icon.sh         # Builds the app icon from AppIcon.svg and installs it
     └── make-test-build.sh   # Builds a separate test copy with its own data
 ```
