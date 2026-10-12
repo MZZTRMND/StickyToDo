@@ -345,13 +345,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 rootView: SettingsView()
                     .environmentObject(settings)
             )
+            // Sized from the content, which SettingsView fixes to its ideal
+            // size, rather than a hard-coded guess.
             let settingsPanel = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 400, height: 400),
+                contentRect: NSRect(origin: .zero, size: hostingView.fittingSize),
                 styleMask: [.titled, .closable],
                 backing: .buffered,
                 defer: false
             )
-            settingsPanel.title = "Preference"
+            settingsPanel.title = "Settings"
             settingsPanel.isReleasedWhenClosed = false
             settingsPanel.contentView = hostingView
             settingsWindow = settingsPanel
