@@ -50,8 +50,20 @@ struct SettingsView: View {
                 .toggleStyle(.checkbox)
                 .disabled(settings.canManageLaunchAtLogin == false)
 
+            Toggle("Show in Dock", isOn: $settings.showInDock)
+                .toggleStyle(.checkbox)
+                .disabled(settings.showInMenuBar == false)
+
             Toggle("Show in Menu Bar", isOn: $settings.showInMenuBar)
                 .toggleStyle(.checkbox)
+                .disabled(settings.showInDock == false)
+
+            // Hiding both would leave only the quick-add shortcut as a way
+            // back into the app, so whichever is the last one stays on.
+            if settings.showInDock == false || settings.showInMenuBar == false {
+                helperText("StickyToDo needs either a Dock icon or a menu bar icon, so one of them stays on.")
+                    .padding(.top, 2)
+            }
 
             if settings.canManageLaunchAtLogin == false {
                 helperText("Launch at Login is available only when StickyToDo runs as a packaged .app.")
