@@ -16,6 +16,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // own overlay window) can see which category tab is selected.
     private let categoryUI = CategoryUIState()
     private lazy var statusItemController = StatusItemController(
+        newTaskAction: { [weak self] in self?.presentOrFocusQuickAddOverlay() },
+        toggleHiddenAction: { [weak self] in self?.toggleHidden() },
         aboutAction: { [weak self] in self?.showAbout() },
         preferenceAction: { [weak self] in self?.showPreference() },
         quitAction: { [weak self] in self?.quitApp() }
@@ -154,6 +156,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Clicking the Dock icon should bring the widget back rather than do
     /// nothing - the window has no close button, but it can be hidden (\u{2318}H)
     /// or left behind on another Space.
+    /// Hides the app's windows (like ⌘H), or brings them back if hidden.
+    private func toggleHidden() {
+        if NSApp.isHidden {
+            NSApp.unhide(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            window?.makeKeyAndOrderFront(nil)
+        } else {
+            NSApp.hide(nil)
+        }
+    }
+
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
