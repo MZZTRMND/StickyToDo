@@ -1,19 +1,106 @@
 import SwiftUI
 
-/// How the card looks, set in the Customize window. Stored as JSON in
-/// AppSettings; nil colors mean "use the system color", so the default style
-/// is exactly the card as it looked before Customize existed.
+/// How the card looks, set in the Customize window: one of the ready-made
+/// palettes, and the task spacing. Stored as JSON in AppSettings; the
+/// original style is stored as nothing, so the default card is exactly as
+/// it looked before Customize existed.
 struct CardStyle: Codable, Equatable {
-    /// The card's background; nil is the system window color, which follows
-    /// light and dark mode.
-    var cardColor: RGBA?
-    /// The selected category tab and checked tasks; nil keeps the system
-    /// accent for the tab and the text color for checked tasks.
-    var accentColor: RGBA?
+    /// Palette.id of the chosen palette.
+    var paletteID = Palette.original.id
     /// How much room each task gets.
     var density = Density.regular
 
     static let original = CardStyle()
+
+    init(paletteID: String = Palette.original.id, density: Density = .regular) {
+        self.paletteID = paletteID
+        self.density = density
+    }
+
+    /// Anything missing or unknown in a stored copy falls back to the
+    /// default, so new settings never wipe old ones - and a style stored by
+    /// an older build (free card/accent colors) comes back as Original.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let storedID = (try? container.decodeIfPresent(String.self, forKey: .paletteID)) ?? nil
+        paletteID = Palette.all.contains { $0.id == storedID } ? storedID! : Palette.original.id
+        density = (try? container.decodeIfPresent(Density.self, forKey: .density)) ?? .regular
+    }
+
+    var palette: Palette { Palette.all.first { $0.id == paletteID } ?? .original }
+    var paletteName: String { palette.name }
+    var isOriginalColor: Bool { paletteID == Palette.original.id }
+    var isOriginalSize: Bool { density == .regular }
+
+    mutating func apply(_ palette: Palette) { paletteID = palette.id }
+
+    /// Back to Original colors, keeping the spacing.
+    mutating func resetColor() { paletteID = Palette.original.id }
+
+    /// Back to the original spacing, keeping the palette.
+    mutating func resetSize() { density = .regular }
+
+    /// The card's colors for the system appearance it's shown in.
+    func colors(for appearance: ColorScheme) -> CardColors {
+        CardColors(variant: palette.variant(for: appearance))
+    }
+}
+
+// MARK: Palettes
+
+extension CardStyle {
+    /// A ready-made look with a light-mode and a dark-mode version, so a
+    /// colored card stays at home in either appearance.
+    struct Palette: Identifiable, Equatable {
+        let id: String
+        let name: String
+        /// nil for Original: the system colors, as before Customize.
+        let light: Variant?
+        let dark: Variant?
+
+        func variant(for appearance: ColorScheme) -> Variant? {
+            appearance == .dark ? dark : light
+        }
+
+        static let original = Palette(id: "original", name: "Original", light: nil, dark: nil)
+
+        static let all: [Palette] = [
+            original,
+            Palette(id: "classic", name: "Classic",
+                    light: Variant(card: 0xFFF1A8, accent: 0xD99A00),
+                    dark: Variant(card: 0x3A3419, accent: 0xF2C14E)),
+            Palette(id: "mint", name: "Mint",
+                    light: Variant(card: 0xD9F4E4, accent: 0x2FA36B),
+                    dark: Variant(card: 0x1D3328, accent: 0x4CCF8E)),
+            Palette(id: "sky", name: "Sky",
+                    light: Variant(card: 0xDDEBFF, accent: 0x3478F6),
+                    dark: Variant(card: 0x1B2940, accent: 0x5E9EFF)),
+            Palette(id: "lavender", name: "Lavender",
+                    light: Variant(card: 0xE9E2FF, accent: 0x7C5CE0),
+                    dark: Variant(card: 0x29233F, accent: 0xA58CFF)),
+            Palette(id: "blush", name: "Blush",
+                    light: Variant(card: 0xFFE1E7, accent: 0xE0527A),
+                    dark: Variant(card: 0x3C2128, accent: 0xFF7D9E)),
+            Palette(id: "paper", name: "Paper",
+                    light: Variant(card: 0xF4EFE6, accent: 0x9A7547),
+                    dark: Variant(card: 0x322F29, accent: 0xD4AA70)),
+            Palette(id: "graphite", name: "Graphite",
+                    light: Variant(card: 0x2C2C2F, accent: 0xF5A623),
+                    dark: Variant(card: 0x1F1F21, accent: 0xF5A623)),
+        ]
+    }
+
+    /// One appearance of a palette: the card and its accent (the selected
+    /// tab and checked tasks).
+    struct Variant: Equatable {
+        let card: RGBA
+        let accent: RGBA
+
+        init(card: UInt32, accent: UInt32) {
+            self.card = RGBA(hex: card)
+            self.accent = RGBA(hex: accent)
+        }
+    }
 
     enum Density: String, Codable, CaseIterable, Identifiable {
         case compact, regular, airy
@@ -47,106 +134,59 @@ struct CardStyle: Codable, Equatable {
             }
         }
     }
+}
 
-    init(cardColor: RGBA? = nil, accentColor: RGBA? = nil, density: Density = .regular) {
-        self.cardColor = cardColor
-        self.accentColor = accentColor
-        self.density = density
-    }
+// MARK: Resolved colors
 
-    /// Anything missing from a stored copy (e.g. one saved before density
-    /// existed) falls back to the default, so new settings never wipe old
-    /// ones.
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        cardColor = try container.decodeIfPresent(RGBA.self, forKey: .cardColor)
-        accentColor = try container.decodeIfPresent(RGBA.self, forKey: .accentColor)
-        density = (try? container.decodeIfPresent(Density.self, forKey: .density)) ?? .regular
-    }
+/// A palette resolved for one appearance. ContentView works this out from
+/// the real appearance and hands it to the card's subviews through the
+/// environment, because inside the card the color scheme is the ink's
+/// (Graphite forces light text even in light mode), not the system's.
+struct CardColors: Equatable {
+    /// nil when the palette is Original and the system colors apply.
+    let variant: CardStyle.Variant?
 
-    var isOriginalSize: Bool { density == .regular }
+    var background: Color { variant?.card.color ?? Theme.cardBackground }
+    /// nil keeps the system accent for the tab and the text color for checks.
+    var accent: Color? { variant?.accent.color }
 
-    /// Back to the original colors, keeping the size settings.
-    mutating func resetColor() { apply(Palette.all[0]) }
-
-    /// Back to the original spacing, keeping the colors.
-    mutating func resetSize() {
-        density = .regular
-    }
-
-    var background: Color { cardColor?.color ?? Theme.cardBackground }
-
-    /// Like ink on a sticky note: a colored card keeps text readable on it
-    /// whatever the system appearance - dark text on light cards, light text
-    /// on dark ones. nil (no card color) follows the system as before.
+    /// Text on the card stays readable: dark ink on light cards, light on
+    /// dark ones. nil follows the system, for Original.
     var inkScheme: ColorScheme? {
-        guard let cardColor else { return nil }
+        guard let card = variant?.card else { return nil }
         // ~0.18 is where black and white text have equal contrast on the card.
-        return cardColor.luminance > 0.18 ? .light : .dark
+        return card.luminance > 0.18 ? .light : .dark
     }
 }
 
-extension CardStyle {
-    /// Ready-made card and accent pairs.
-    struct Palette: Identifiable {
-        let name: String
-        let card: RGBA?
-        let accent: RGBA?
-        var id: String { name }
-
-        static let all: [Palette] = [
-            Palette(name: "Original", card: nil, accent: nil),
-            Palette(name: "Classic", card: RGBA(hex: 0xFFF1A8), accent: RGBA(hex: 0xD99A00)),
-            Palette(name: "Mint", card: RGBA(hex: 0xD9F4E4), accent: RGBA(hex: 0x2FA36B)),
-            Palette(name: "Sky", card: RGBA(hex: 0xDDEBFF), accent: RGBA(hex: 0x3478F6)),
-            Palette(name: "Lavender", card: RGBA(hex: 0xE9E2FF), accent: RGBA(hex: 0x7C5CE0)),
-            Palette(name: "Blush", card: RGBA(hex: 0xFFE1E7), accent: RGBA(hex: 0xE0527A)),
-            Palette(name: "Paper", card: RGBA(hex: 0xF4EFE6), accent: RGBA(hex: 0x9A7547)),
-            Palette(name: "Graphite", card: RGBA(hex: 0x2C2C2F), accent: RGBA(hex: 0xF5A623)),
-        ]
-    }
-
-    func uses(_ palette: Palette) -> Bool {
-        cardColor == palette.card && accentColor == palette.accent
-    }
-
-    mutating func apply(_ palette: Palette) {
-        cardColor = palette.card
-        accentColor = palette.accent
-    }
-
-    var paletteName: String { Palette.all.first(where: uses)?.name ?? "Custom" }
-
-    var isOriginalColor: Bool { uses(Palette.all[0]) }
+private struct CardColorsKey: EnvironmentKey {
+    static let defaultValue = CardColors(variant: nil)
 }
 
-/// A color that can be saved: sRGB components.
-struct RGBA: Codable, Equatable, Hashable {
+extension EnvironmentValues {
+    var cardColors: CardColors {
+        get { self[CardColorsKey.self] }
+        set { self[CardColorsKey.self] = newValue }
+    }
+}
+
+/// A color as sRGB components.
+struct RGBA: Equatable, Hashable {
     var red, green, blue: Double
-    var alpha = 1.0
 
-    init(_ red: Double, _ green: Double, _ blue: Double, _ alpha: Double = 1) {
-        (self.red, self.green, self.blue, self.alpha) = (red, green, blue, alpha)
+    init(_ red: Double, _ green: Double, _ blue: Double) {
+        (self.red, self.green, self.blue) = (red, green, blue)
     }
 
     init(hex: UInt32) {
         self.init(Double((hex >> 16) & 0xFF) / 255, Double((hex >> 8) & 0xFF) / 255, Double(hex & 0xFF) / 255)
     }
 
-    init(_ color: Color) {
-        let ns = NSColor(color).usingColorSpace(.sRGB) ?? .gray
-        self.init(ns.redComponent, ns.greenComponent, ns.blueComponent, ns.alphaComponent)
-    }
-
-    var color: Color { Color(.sRGB, red: red, green: green, blue: blue, opacity: alpha) }
+    var color: Color { Color(.sRGB, red: red, green: green, blue: blue) }
 
     /// Relative luminance (WCAG), 0 for black to 1 for white.
     var luminance: Double {
         func linear(_ c: Double) -> Double { c <= 0.03928 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
         return 0.2126 * linear(red) + 0.7152 * linear(green) + 0.0722 * linear(blue)
-    }
-
-    var hexString: String {
-        String(format: "#%02X%02X%02X", Int((red * 255).rounded()), Int((green * 255).rounded()), Int((blue * 255).rounded()))
     }
 }

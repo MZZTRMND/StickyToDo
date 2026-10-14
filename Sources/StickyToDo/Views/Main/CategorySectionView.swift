@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 struct CategorySectionView: View {
     @ObservedObject var categoryUI: CategoryUIState
     @EnvironmentObject private var store: TaskStore
-    @EnvironmentObject private var settings: AppSettings
+    @Environment(\.cardColors) private var cardColors
     @Binding var draggingId: UUID?
     let activateWindow: () -> Void
     @FocusState private var focusedCategoryID: UUID?
@@ -148,7 +148,7 @@ struct CategorySectionView: View {
             if isHighlighted {
                 Button(title, action: action)
                     .buttonStyle(.glassProminent)
-                    .tint(settings.cardStyle.accentColor?.color ?? Theme.accent)
+                    .tint(cardColors.accent ?? Theme.accent)
             } else {
                 Button(title, action: action)
                     .buttonStyle(.glass)

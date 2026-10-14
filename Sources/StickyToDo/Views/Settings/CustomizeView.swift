@@ -66,7 +66,7 @@ struct CustomizeView: View {
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
         }
-        .frame(width: 380, height: 700)
+        .frame(width: 380, height: 500)
         .background(.background)
     }
 }
@@ -117,34 +117,21 @@ private struct ColorTab: View {
 
     private static let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: 4)
 
-    private static let cardSwatches: [RGBA] = [
-        RGBA(hex: 0xFFF1A8), RGBA(hex: 0xD9F4E4), RGBA(hex: 0xDDEBFF), RGBA(hex: 0xE9E2FF),
-        RGBA(hex: 0xFFE1E7), RGBA(hex: 0xF4EFE6), RGBA(hex: 0x2C2C2F),
-    ]
-    private static let accentSwatches: [RGBA] = [
-        RGBA(0.98, 0.36, 0.34), RGBA(0.98, 0.60, 0.28), RGBA(hex: 0xD99A00), RGBA(0.30, 0.76, 0.48),
-        RGBA(0.27, 0.52, 0.96), RGBA(0.58, 0.48, 0.94), RGBA(0.22, 0.22, 0.24),
-    ]
-
     var body: some View {
         Form {
-            Section("Palette") {
+            Section {
                 LazyVGrid(columns: Self.columns, spacing: 12) {
                     ForEach(CardStyle.Palette.all) { palette in
-                        PaletteCard(palette: palette, isSelected: style.uses(palette)) {
+                        PaletteCard(palette: palette, isSelected: style.palette == palette) {
                             withAnimation(.snappy) { style.apply(palette) }
                         }
                     }
                 }
                 .padding(.vertical, 4)
-            }
-            Section {
-                SwatchPicker(title: "Card", swatches: Self.cardSwatches, selection: $style.cardColor)
-                SwatchPicker(title: "Accent", swatches: Self.accentSwatches, selection: $style.accentColor)
             } header: {
-                Text("Colors")
+                Text("Palette")
             } footer: {
-                ResetFooter(note: "Accent colors the selected tab and checked tasks. Text on a colored card stays readable, like ink on a sticky note.",
+                ResetFooter(note: "Each palette has a light and a dark version, following the appearance.",
                             isDisabled: style.isOriginalColor) {
                     style.resetColor()
                 }
@@ -153,8 +140,7 @@ private struct ColorTab: View {
     }
 }
 
-/// A palette as a little card with its name; picking it sets the card and
-/// accent colors.
+/// A palette as a little card with its name.
 private struct PaletteCard: View {
     let palette: CardStyle.Palette
     let isSelected: Bool
@@ -164,7 +150,7 @@ private struct PaletteCard: View {
     var body: some View {
         Button(action: action) {
             VStack(spacing: 6) {
-                MiniCard(style: CardStyle(cardColor: palette.card, accentColor: palette.accent))
+                MiniCard(style: CardStyle(paletteID: palette.id))
                     .frame(maxWidth: .infinity)
                     .frame(height: 50)
                     .background(.fill.quaternary.opacity(isHovered ? 1.6 : 1),
@@ -185,15 +171,17 @@ private struct PaletteCard: View {
     }
 }
 
-/// A small, static drawing of the card in a style: a checked task and two
-/// lines of "text", inked the way the real card would be.
+/// A small, static drawing of the card in a style - in the palette's light
+/// or dark version for the current appearance: a checked task and two lines
+/// of "text", inked the way the real card would be. Also used by Settings.
 struct MiniCard: View {
     let style: CardStyle
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
+        let colors = style.colors(for: colorScheme)
         RoundedRectangle(cornerRadius: 7, style: .continuous)
-            .fill(style.background)
+            .fill(colors.background)
             .overlay {
                 RoundedRectangle(cornerRadius: 7, style: .continuous).strokeBorder(.separator)
             }
@@ -201,7 +189,7 @@ struct MiniCard: View {
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 4) {
                         Circle()
-                            .fill(style.accentColor?.color ?? Theme.primaryText)
+                            .fill(colors.accent ?? Theme.primaryText)
                             .frame(width: 7, height: 7)
                         Capsule().fill(Theme.tertiaryText).frame(width: 18, height: 3)
                     }
@@ -211,80 +199,9 @@ struct MiniCard: View {
                     }
                 }
                 .padding(7)
+                .environment(\.colorScheme, colors.inkScheme ?? colorScheme)
             }
             .frame(width: 50, height: 40)
-            .environment(\.colorScheme, style.inkScheme ?? colorScheme)
-    }
-}
-
-/// A title over a row of color dots: the system color first, a few colors,
-/// and the system color picker for anything else.
-private struct SwatchPicker: View {
-    let title: String
-    let swatches: [RGBA]
-    @Binding var selection: RGBA?
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text(title)
-                Spacer()
-                Text(selection?.hexString ?? "System")
-                    .font(.callout.monospaced())
-                    .foregroundStyle(.secondary)
-            }
-            HStack(spacing: 5) {
-                Dot(isSelected: selection == nil) {
-                    // Half light, half dark: it follows the appearance.
-                    Circle().fill(LinearGradient(stops: [.init(color: Color(white: 0.92), location: 0.5),
-                                                         .init(color: Color(white: 0.28), location: 0.5)],
-                                                 startPoint: .topLeading, endPoint: .bottomTrailing))
-                } action: {
-                    selection = nil
-                }
-                .help("System color")
-                ForEach(swatches, id: \.self) { swatch in
-                    Dot(isSelected: selection == swatch) {
-                        Circle().fill(swatch.color.gradient)
-                    } action: {
-                        selection = swatch
-                    }
-                }
-                Spacer(minLength: 0)
-                ColorPicker(title, selection: Binding(
-                    get: { selection?.color ?? .gray },
-                    set: { selection = RGBA($0) }
-                ), supportsOpacity: false)
-                .labelsHidden()
-                .help("Any color")
-            }
-        }
-        .padding(.vertical, 2)
-    }
-
-    private struct Dot<Fill: View>: View {
-        let isSelected: Bool
-        @ViewBuilder let fill: Fill
-        let action: () -> Void
-        @State private var isHovered = false
-
-        var body: some View {
-            Button(action: action) {
-                fill
-                    .frame(width: 20, height: 20)
-                    .overlay { Circle().strokeBorder(.separator) }
-                    .padding(2.5)
-                    .overlay {
-                        Circle().strokeBorder(isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.clear), lineWidth: 2)
-                    }
-                    .scaleEffect(isHovered && !isSelected ? 1.1 : 1)
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .onHover { isHovered = $0 }
-            .animation(.snappy(duration: 0.2), value: isHovered)
-            .animation(.snappy(duration: 0.2), value: isSelected)
-        }
     }
 }
 

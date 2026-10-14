@@ -87,10 +87,12 @@ struct ContentView: View {
             }
             .clipShape(RoundedRectangle(cornerRadius: Layout.cardCornerRadius, style: .continuous))
             // On a colored card, text and controls resolve for the card's own
-            // lightness rather than the system appearance (see CardStyle.inkScheme).
+            // lightness rather than the system appearance (see CardColors.inkScheme).
             // Always set (to the inherited scheme when there's no override),
             // so switching styles doesn't swap the card's view identity.
-            .environment(\.colorScheme, settings.cardStyle.inkScheme ?? colorScheme)
+            .environment(\.colorScheme, cardColors.inkScheme ?? colorScheme)
+            // Resolved here, from the real appearance, for the rows and tabs.
+            .environment(\.cardColors, cardColors)
             .animation(.easeInOut(duration: 0.2), value: settings.cardStyle)
             .overlay(alignment: .topTrailing) {
                 if isHeaderQuickAddTooltipVisible {
@@ -544,8 +546,13 @@ private extension ContentView {
         Theme.placeholderText
     }
 
+    /// The palette in its light or dark version, for the current appearance.
+    var cardColors: CardColors {
+        settings.cardStyle.colors(for: colorScheme)
+    }
+
     var cardBackgroundColor: Color {
-        settings.cardStyle.background
+        cardColors.background
     }
 
     /// Height the window should adopt. The list portion now comes from one
