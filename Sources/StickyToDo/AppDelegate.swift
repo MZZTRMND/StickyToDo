@@ -187,14 +187,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hostingView = rootHostingView
 
         let panel = KeyablePanel(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 420),
+            contentRect: NSRect(x: 0, y: 0, width: settings.cardWidth, height: 420),
             styleMask: [.borderless, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         configurePanel(panel, hostingView: rootHostingView)
-        panel.minSize = NSSize(width: 350, height: 200)
-        panel.maxSize = NSSize(width: 600, height: 600)
+        panel.minSize = NSSize(width: AppSettings.cardWidthRange.lowerBound, height: 200)
+        panel.maxSize = NSSize(width: AppSettings.cardWidthRange.upperBound, height: 600)
         panel.center()
         let targetSize = preferredWindowSize(fallback: panel.frame.size)
         panel.setFrame(centeredFrame(from: panel.frame, targetSize: targetSize), display: true)
@@ -202,6 +202,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         window = panel
         applyPinnedOnTop()
+        // Dragging the card's edge sets its width; remember it for next launch.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(cardDidEndLiveResize),
+            name: NSWindow.didEndLiveResizeNotification,
+            object: panel
+        )
 
         // SwiftUI can report a stale fitting height on the very first layout
         // pass, before NSHostingView has had a chance to lay out its content -
@@ -296,6 +303,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if settingsWindow?.isVisible == true {
             settingsWindow?.makeKeyAndOrderFront(nil)
         }
+    }
+
+    @objc private func cardDidEndLiveResize() {
+        guard let window else { return }
+        let range = AppSettings.cardWidthRange
+        settings.cardWidth = min(max(window.frame.width.rounded(), range.lowerBound), range.upperBound)
     }
 
     /// Pinned, the card floats above other apps' windows (.floating);
@@ -449,8 +462,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func preferredWindowSize(fallback: NSSize) -> NSSize {
-        let minWidth: CGFloat = 350
-        let maxWidth: CGFloat = 600
+        let minWidth = AppSettings.cardWidthRange.lowerBound
+        let maxWidth = AppSettings.cardWidthRange.upperBound
         let minHeight: CGFloat = 200
         let maxHeight: CGFloat = 600
 

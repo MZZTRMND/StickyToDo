@@ -11,6 +11,7 @@ struct SettingsView: View {
             generalSection
             windowSection
             appearanceSection
+            lookSection
             shortcutSection
         }
         .formStyle(.grouped)
@@ -66,13 +67,32 @@ struct SettingsView: View {
             .pickerStyle(.segmented)
 
             Toggle("Show checkboxes", isOn: $settings.showCheckboxes)
+        }
+    }
 
-            // Card colors and text size live in the Customize window.
-            LabeledContent("Card colors and text size") {
+    /// The card's current look, with the way into the Customize window - the
+    /// same row as Look in Cubby's Settings.
+    private var lookSection: some View {
+        Section {
+            HStack(spacing: 14) {
+                MiniCard(style: settings.cardStyle)
+                    .frame(width: 58, height: 50)
+                    .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Card Style")
+                    Text(settings.cardStyle.paletteName)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
                 Button("Customize\u{2026}") {
                     NotificationCenter.default.post(name: .stickyToDoShowCustomizeRequested, object: nil)
                 }
             }
+        } header: {
+            Text("Look")
+        } footer: {
+            footnote("Colors, text size and spacing.")
         }
     }
 

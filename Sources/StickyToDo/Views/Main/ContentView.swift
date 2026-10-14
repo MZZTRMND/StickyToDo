@@ -266,7 +266,7 @@ struct ContentView: View {
 
     private func list(_ tasks: [TaskItem]) -> some View {
         ScrollView {
-            LazyVStack(spacing: Layout.listRowSpacing) {
+            LazyVStack(spacing: settings.cardStyle.density.rowSpacing) {
                 ForEach(tasks) { task in
                     taskRowView(for: task)
                 }
@@ -651,7 +651,6 @@ private enum Layout {
     /// need to stay precisely in sync with the actual row height anymore.
     static let categoryBarHeight: CGFloat = 32
 
-    static let listRowSpacing: CGFloat = 4
     static let listTopPadding: CGFloat = 16
     static let listBottomPadding: CGFloat = 16
     static let listMaxHeight: CGFloat = 600

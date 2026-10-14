@@ -51,6 +51,15 @@ final class AppSettings: ObservableObject {
         }
     }
     static let defaultTaskFontSize: Double = 18
+    /// The card's width, set by dragging its edge and remembered between
+    /// launches. Window geometry rather than style, so Reset All leaves it.
+    @Published var cardWidth: CGFloat {
+        didSet {
+            UserDefaults.standard.set(Double(cardWidth), forKey: Self.cardWidthKey)
+        }
+    }
+    static let defaultCardWidth: CGFloat = 420
+    static let cardWidthRange: ClosedRange<CGFloat> = 400...600
     /// The card's colors, set in the Customize window. Stored as JSON; the
     /// original style is stored as nothing at all.
     @Published var cardStyle: CardStyle {
@@ -89,6 +98,7 @@ final class AppSettings: ObservableObject {
     private static let showCheckboxesKey = "StickyToDo.showCheckboxes"
     private static let pinnedOnTopKey = "StickyToDo.pinnedOnTop"
     private static let cardStyleKey = "StickyToDo.cardStyle"
+    private static let cardWidthKey = "StickyToDo.cardWidth"
 
     private init() {
         let defaults = UserDefaults.standard
@@ -108,6 +118,10 @@ final class AppSettings: ObservableObject {
         taskFontSize = (18...32).contains(storedTaskFontSize) ? storedTaskFontSize : Self.defaultTaskFontSize
         cardStyle = defaults.data(forKey: Self.cardStyleKey)
             .flatMap { try? JSONDecoder().decode(CardStyle.self, from: $0) } ?? .original
+        let storedCardWidth = defaults.object(forKey: Self.cardWidthKey) == nil
+            ? Self.defaultCardWidth
+            : CGFloat(defaults.double(forKey: Self.cardWidthKey))
+        cardWidth = min(max(storedCardWidth, Self.cardWidthRange.lowerBound), Self.cardWidthRange.upperBound)
 
         // Never start with no way back in (e.g. if the stored values were
         // edited by hand).

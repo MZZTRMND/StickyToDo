@@ -145,7 +145,7 @@ struct TaskRow<RowMenu: View>: View {
             .padding(.top, 2)
             .padding(.leading, 8)
         }
-        .padding(.vertical, 12)
+        .padding(.vertical, settings.cardStyle.density.rowVerticalPadding)
         .padding(.horizontal, 16)
         // The row now sizes itself: the title wraps, the VStack grows, and
         // this is only a comfortable floor for short rows. Previously the
@@ -153,7 +153,7 @@ struct TaskRow<RowMenu: View>: View {
         // reported back up via a preference so the window could sum it -
         // that measurement ran for every task on every render and was the
         // main source of the scrolling stall.
-        .frame(minHeight: TaskRowMetrics.minimumHeight)
+        .frame(minHeight: settings.cardStyle.density.rowMinimumHeight)
         .contentShape(Rectangle())
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -329,15 +329,6 @@ struct TaskRow<RowMenu: View>: View {
         draftTitle = task.title
     }
 
-}
-
-/// TaskRow is generic (over its context-menu content), and generic types
-/// can't have static stored properties, so this lives outside the type.
-enum TaskRowMetrics {
-    /// A comfortable floor for a short row. Everything taller than this is
-    /// decided by SwiftUI laying the row out normally - the app no longer
-    /// measures title text itself.
-    static let minimumHeight: CGFloat = 48
 }
 
 struct TaskCategoryBadge: Equatable {

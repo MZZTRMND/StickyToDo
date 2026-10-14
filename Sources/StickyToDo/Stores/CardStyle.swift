@@ -10,8 +10,69 @@ struct CardStyle: Codable, Equatable {
     /// The selected category tab and checked tasks; nil keeps the system
     /// accent for the tab and the text color for checked tasks.
     var accentColor: RGBA?
+    /// How much room each task gets.
+    var density = Density.regular
 
     static let original = CardStyle()
+
+    enum Density: String, Codable, CaseIterable, Identifiable {
+        case compact, regular, airy
+        var id: Self { self }
+        var title: String { rawValue.capitalized }
+
+        /// Space above and below a task's content. Regular is the original 12.
+        var rowVerticalPadding: CGFloat {
+            switch self {
+            case .compact: 7
+            case .regular: 12
+            case .airy: 17
+            }
+        }
+
+        /// A short task's height. Regular is the original 48.
+        var rowMinimumHeight: CGFloat {
+            switch self {
+            case .compact: 38
+            case .regular: 48
+            case .airy: 58
+            }
+        }
+
+        /// The gap between tasks. Regular is the original 4.
+        var rowSpacing: CGFloat {
+            switch self {
+            case .compact: 2
+            case .regular: 4
+            case .airy: 8
+            }
+        }
+    }
+
+    init(cardColor: RGBA? = nil, accentColor: RGBA? = nil, density: Density = .regular) {
+        self.cardColor = cardColor
+        self.accentColor = accentColor
+        self.density = density
+    }
+
+    /// Anything missing from a stored copy (e.g. one saved before density
+    /// existed) falls back to the default, so new settings never wipe old
+    /// ones.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        cardColor = try container.decodeIfPresent(RGBA.self, forKey: .cardColor)
+        accentColor = try container.decodeIfPresent(RGBA.self, forKey: .accentColor)
+        density = (try? container.decodeIfPresent(Density.self, forKey: .density)) ?? .regular
+    }
+
+    var isOriginalSize: Bool { density == .regular }
+
+    /// Back to the original colors, keeping the size settings.
+    mutating func resetColor() { apply(Palette.all[0]) }
+
+    /// Back to the original spacing, keeping the colors.
+    mutating func resetSize() {
+        density = .regular
+    }
 
     var background: Color { cardColor?.color ?? Theme.cardBackground }
 

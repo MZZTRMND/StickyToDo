@@ -42,7 +42,7 @@ struct CustomizeView: View {
             Group {
                 switch tab {
                 case .color: ColorTab(style: $settings.cardStyle)
-                case .size: SizeTab(taskFontSize: $settings.taskFontSize)
+                case .size: SizeTab(style: $settings.cardStyle, taskFontSize: $settings.taskFontSize)
                 }
             }
             .formStyle(.grouped)
@@ -146,7 +146,7 @@ private struct ColorTab: View {
             } footer: {
                 ResetFooter(note: "Accent colors the selected tab and checked tasks. Text on a colored card stays readable, like ink on a sticky note.",
                             isDisabled: style.isOriginalColor) {
-                    style = .original
+                    style.resetColor()
                 }
             }
         }
@@ -187,7 +187,7 @@ private struct PaletteCard: View {
 
 /// A small, static drawing of the card in a style: a checked task and two
 /// lines of "text", inked the way the real card would be.
-private struct MiniCard: View {
+struct MiniCard: View {
     let style: CardStyle
     @Environment(\.colorScheme) private var colorScheme
 
@@ -291,18 +291,28 @@ private struct SwatchPicker: View {
 // MARK: Size
 
 private struct SizeTab: View {
+    @Binding var style: CardStyle
     @Binding var taskFontSize: Double
 
     var body: some View {
         Form {
-            Section {
+            Section("Text") {
                 StyleSlider(title: "Task text size", value: $taskFontSize, in: 18...32, step: 1)
+            }
+            Section {
+                Picker("Spacing", selection: $style.density) {
+                    ForEach(CardStyle.Density.allCases) { density in
+                        Text(density.title).tag(density)
+                    }
+                }
+                .pickerStyle(.segmented)
             } header: {
-                Text("Text")
+                Text("Layout")
             } footer: {
-                ResetFooter(note: "The size of task titles on the card.",
-                            isDisabled: taskFontSize == AppSettings.defaultTaskFontSize) {
+                ResetFooter(note: "Drag the card's edge to change its width.",
+                            isDisabled: taskFontSize == AppSettings.defaultTaskFontSize && style.isOriginalSize) {
                     taskFontSize = AppSettings.defaultTaskFontSize
+                    style.resetSize()
                 }
             }
         }

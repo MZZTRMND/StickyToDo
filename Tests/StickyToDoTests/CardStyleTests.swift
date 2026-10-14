@@ -43,6 +43,29 @@ final class CardStyleTests: XCTestCase {
         XCTAssertEqual(decoded, style)
     }
 
+    func testStyleSavedBeforeSizeSettingsStillLoads() throws {
+        // What the first Customize version stored: colors only, no density.
+        let json = #"{"cardColor":{"red":1,"green":0.945,"blue":0.659,"alpha":1}}"#
+        let style = try JSONDecoder().decode(CardStyle.self, from: Data(json.utf8))
+        XCTAssertEqual(style.cardColor, RGBA(1, 0.945, 0.659))
+        XCTAssertEqual(style.density, .regular)
+    }
+
+    func testResetColorKeepsSizeAndResetSizeKeepsColor() {
+        var style = CardStyle(density: .airy)
+        style.apply(palette("Mint"))
+
+        var colorReset = style
+        colorReset.resetColor()
+        XCTAssertTrue(colorReset.isOriginalColor)
+        XCTAssertEqual(colorReset.density, .airy)
+
+        var sizeReset = style
+        sizeReset.resetSize()
+        XCTAssertTrue(sizeReset.isOriginalSize)
+        XCTAssertEqual(sizeReset.paletteName, "Mint")
+    }
+
     private func palette(_ name: String) -> CardStyle.Palette {
         CardStyle.Palette.all.first { $0.name == name }!
     }
