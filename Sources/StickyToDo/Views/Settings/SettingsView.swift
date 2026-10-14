@@ -65,17 +65,14 @@ struct SettingsView: View {
             }
             .pickerStyle(.segmented)
 
-            // The card updates live as the slider moves, so the small and
-            // large "A" are enough of a scale - no point size to read.
-            Slider(value: $settings.taskFontSize, in: 18...32, step: 1) {
-                Text("Task text size")
-            } minimumValueLabel: {
-                Text("A").font(.system(size: 11))
-            } maximumValueLabel: {
-                Text("A").font(.system(size: 17))
-            }
-
             Toggle("Show checkboxes", isOn: $settings.showCheckboxes)
+
+            // Card colors and text size live in the Customize window.
+            LabeledContent("Card colors and text size") {
+                Button("Customize\u{2026}") {
+                    NotificationCenter.default.post(name: .stickyToDoShowCustomizeRequested, object: nil)
+                }
+            }
         }
     }
 

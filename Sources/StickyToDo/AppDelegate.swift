@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let hotKeyManager = GlobalHotKeyManager()
     private var window: NSWindow?
     private var settingsWindow: NSWindow?
+    private var customizeWindow: NSWindow?
     private var aboutWindow: NSWindow?
     private var quickAddWindow: NSPanel?
     private var hostingView: NSHostingView<AnyView>?
@@ -53,6 +54,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self,
             selector: #selector(presentQuickAddFromInAppRequest),
             name: .stickyToDoPresentQuickAddRequested,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(showCustomizeFromRequest),
+            name: .stickyToDoShowCustomizeRequested,
             object: nil
         )
         NotificationCenter.default.addObserver(
@@ -382,6 +389,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    @objc private func showCustomizeFromRequest() {
+        showCustomize()
+    }
+
+    private func showCustomize() {
+        if customizeWindow == nil {
+            let hostingView = NSHostingView(
+                rootView: CustomizeView(onDone: { [weak self] in self?.customizeWindow?.close() })
+                    .environmentObject(settings)
+            )
+            // Transparent title bar like the About window: the traffic lights
+            // sit above the header.
+            let panel = NSWindow(
+                contentRect: NSRect(origin: .zero, size: hostingView.fittingSize),
+                styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
+                backing: .buffered,
+                defer: false
+            )
+            panel.title = "Customize StickyToDo"
+            panel.titleVisibility = .hidden
+            panel.titlebarAppearsTransparent = true
+            panel.isReleasedWhenClosed = false
+            panel.contentView = hostingView
+            customizeWindow = panel
+            placeBesideCard(panel)
+        }
+
+        matchMainWindowLevel(customizeWindow)
+        customizeWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Every change applies to the card right away, so open beside it
+    /// (left, else right, top edges aligned) rather than on top of it.
+    private func placeBesideCard(_ panel: NSWindow) {
+        guard let card = window?.frame, let visible = (window?.screen ?? NSScreen.main)?.visibleFrame else {
+            panel.center()
+            return
+        }
+        let size = panel.frame.size
+        let gap: CGFloat = 16
+        let top = min(card.maxY, visible.maxY)
+        if card.minX - gap - size.width >= visible.minX {
+            panel.setFrameTopLeftPoint(NSPoint(x: card.minX - gap - size.width, y: top))
+        } else if card.maxX + gap + size.width <= visible.maxX {
+            panel.setFrameTopLeftPoint(NSPoint(x: card.maxX + gap, y: top))
+        } else {
+            panel.center()
+        }
+    }
+
     @objc private func presentQuickAddFromInAppRequest() {
         presentOrFocusQuickAddOverlay()
     }
@@ -544,6 +602,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 extension Notification.Name {
     static let stickyToDoQuickAddFocusRequested = Notification.Name("StickyToDo.QuickAddFocusRequested")
     static let stickyToDoPresentQuickAddRequested = Notification.Name("StickyToDo.PresentQuickAddRequested")
+    static let stickyToDoShowCustomizeRequested = Notification.Name("StickyToDo.ShowCustomizeRequested")
 }
 
 private struct RootContentView: View {

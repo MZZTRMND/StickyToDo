@@ -29,7 +29,7 @@ struct TaskRow<RowMenu: View>: View {
             if showCheckboxes {
                 Button(action: onToggle) {
                     Circle()
-                        .fill(task.isDone ? Theme.primaryText : .clear)
+                        .fill(task.isDone ? checkedFill : .clear)
                         .overlay(
                             Group {
                                 if task.isDone == false {
@@ -42,7 +42,7 @@ struct TaskRow<RowMenu: View>: View {
                         .overlay(
                             Image(systemName: "checkmark")
                                 .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(task.isDone ? Theme.cardBackground : .clear)
+                                .foregroundStyle(task.isDone ? checkmarkColor : .clear)
                         )
                 }
                 .buttonStyle(.plain)
@@ -190,6 +190,17 @@ struct TaskRow<RowMenu: View>: View {
         .onDisappear {
             attachmentPreviewTimer.cancel()
         }
+    }
+
+    /// A checked task's circle: the card style's accent, or the text color.
+    private var checkedFill: Color {
+        settings.cardStyle.accentColor?.color ?? Theme.primaryText
+    }
+
+    /// The tick inside it: white on an accent, otherwise the card color, which
+    /// contrasts with the text color by definition.
+    private var checkmarkColor: Color {
+        settings.cardStyle.accentColor == nil ? settings.cardStyle.background : .white
     }
 
     private var circleStrokeColor: Color {
