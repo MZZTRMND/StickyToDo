@@ -25,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let hotKeyManager = GlobalHotKeyManager()
     private var window: NSWindow?
     private var settingsWindow: NSWindow?
+    private var customizeWindow: NSWindow?
     private var aboutWindow: NSWindow?
     private var quickAddWindow: NSPanel?
     private var hostingView: NSHostingView<AnyView>?
@@ -53,6 +54,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self,
             selector: #selector(presentQuickAddFromInAppRequest),
             name: .stickyToDoPresentQuickAddRequested,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(showCustomizeFromRequest),
+            name: .stickyToDoShowCustomizeRequested,
             object: nil
         )
         NotificationCenter.default.addObserver(
@@ -180,14 +187,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hostingView = rootHostingView
 
         let panel = KeyablePanel(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 420),
+            contentRect: NSRect(x: 0, y: 0, width: settings.cardWidth, height: 420),
             styleMask: [.borderless, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
         configurePanel(panel, hostingView: rootHostingView)
-        panel.minSize = NSSize(width: 350, height: 200)
-        panel.maxSize = NSSize(width: 600, height: 600)
+        panel.minSize = NSSize(width: AppSettings.cardWidthRange.lowerBound, height: 200)
+        panel.maxSize = NSSize(width: AppSettings.cardWidthRange.upperBound, height: 600)
         panel.center()
         let targetSize = preferredWindowSize(fallback: panel.frame.size)
         panel.setFrame(centeredFrame(from: panel.frame, targetSize: targetSize), display: true)
@@ -195,6 +202,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         window = panel
         applyPinnedOnTop()
+        // Dragging the card's edge sets its width; remember it for next launch.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(cardDidEndLiveResize),
+            name: NSWindow.didEndLiveResizeNotification,
+            object: panel
+        )
 
         // SwiftUI can report a stale fitting height on the very first layout
         // pass, before NSHostingView has had a chance to lay out its content -
@@ -291,6 +305,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    @objc private func cardDidEndLiveResize() {
+        guard let window else { return }
+        let range = AppSettings.cardWidthRange
+        settings.cardWidth = min(max(window.frame.width.rounded(), range.lowerBound), range.upperBound)
+    }
+
     /// Pinned, the card floats above other apps' windows (.floating);
     /// unpinned, it's an ordinary window again (.normal - see configurePanel).
     private func applyPinnedOnTop() {
@@ -382,6 +402,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    @objc private func showCustomizeFromRequest() {
+        showCustomize()
+    }
+
+    private func showCustomize() {
+        if customizeWindow == nil {
+            let hostingView = NSHostingView(
+                rootView: CustomizeView(onDone: { [weak self] in self?.customizeWindow?.close() })
+                    .environmentObject(settings)
+            )
+            // Transparent title bar like the About window: the traffic lights
+            // sit above the header.
+            let panel = NSWindow(
+                contentRect: NSRect(origin: .zero, size: hostingView.fittingSize),
+                styleMask: [.titled, .closable, .miniaturizable, .fullSizeContentView],
+                backing: .buffered,
+                defer: false
+            )
+            panel.title = "Customize StickyToDo"
+            panel.titleVisibility = .hidden
+            panel.titlebarAppearsTransparent = true
+            panel.isReleasedWhenClosed = false
+            panel.contentView = hostingView
+            customizeWindow = panel
+            placeBesideCard(panel)
+        }
+
+        matchMainWindowLevel(customizeWindow)
+        customizeWindow?.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// Every change applies to the card right away, so open beside it
+    /// (left, else right, top edges aligned) rather than on top of it.
+    private func placeBesideCard(_ panel: NSWindow) {
+        guard let card = window?.frame, let visible = (window?.screen ?? NSScreen.main)?.visibleFrame else {
+            panel.center()
+            return
+        }
+        let size = panel.frame.size
+        let gap: CGFloat = 16
+        let top = min(card.maxY, visible.maxY)
+        if card.minX - gap - size.width >= visible.minX {
+            panel.setFrameTopLeftPoint(NSPoint(x: card.minX - gap - size.width, y: top))
+        } else if card.maxX + gap + size.width <= visible.maxX {
+            panel.setFrameTopLeftPoint(NSPoint(x: card.maxX + gap, y: top))
+        } else {
+            panel.center()
+        }
+    }
+
     @objc private func presentQuickAddFromInAppRequest() {
         presentOrFocusQuickAddOverlay()
     }
@@ -391,8 +462,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func preferredWindowSize(fallback: NSSize) -> NSSize {
-        let minWidth: CGFloat = 350
-        let maxWidth: CGFloat = 600
+        let minWidth = AppSettings.cardWidthRange.lowerBound
+        let maxWidth = AppSettings.cardWidthRange.upperBound
         let minHeight: CGFloat = 200
         let maxHeight: CGFloat = 600
 
@@ -544,6 +615,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 extension Notification.Name {
     static let stickyToDoQuickAddFocusRequested = Notification.Name("StickyToDo.QuickAddFocusRequested")
     static let stickyToDoPresentQuickAddRequested = Notification.Name("StickyToDo.PresentQuickAddRequested")
+    static let stickyToDoShowCustomizeRequested = Notification.Name("StickyToDo.ShowCustomizeRequested")
 }
 
 private struct RootContentView: View {

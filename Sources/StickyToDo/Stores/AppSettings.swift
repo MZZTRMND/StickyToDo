@@ -50,6 +50,27 @@ final class AppSettings: ObservableObject {
             UserDefaults.standard.set(taskFontSize, forKey: Self.taskFontSizeKey)
         }
     }
+    static let defaultTaskFontSize: Double = 18
+    /// The card's width, set by dragging its edge and remembered between
+    /// launches. Window geometry rather than style, so Reset All leaves it.
+    @Published var cardWidth: CGFloat {
+        didSet {
+            UserDefaults.standard.set(Double(cardWidth), forKey: Self.cardWidthKey)
+        }
+    }
+    static let defaultCardWidth: CGFloat = 420
+    static let cardWidthRange: ClosedRange<CGFloat> = 400...600
+    /// The card's colors, set in the Customize window. Stored as JSON; the
+    /// original style is stored as nothing at all.
+    @Published var cardStyle: CardStyle {
+        didSet {
+            if cardStyle == .original {
+                UserDefaults.standard.removeObject(forKey: Self.cardStyleKey)
+            } else if let data = try? JSONEncoder().encode(cardStyle) {
+                UserDefaults.standard.set(data, forKey: Self.cardStyleKey)
+            }
+        }
+    }
     @AppStorage(AppSettings.showCheckboxesKey) var showCheckboxes: Bool = true
     /// Keeps the main window above other apps' windows. @Published because
     /// AppDelegate applies it to the window's level when it changes.
@@ -76,6 +97,8 @@ final class AppSettings: ObservableObject {
     private static let taskFontSizeKey = "StickyToDo.taskFontSize"
     private static let showCheckboxesKey = "StickyToDo.showCheckboxes"
     private static let pinnedOnTopKey = "StickyToDo.pinnedOnTop"
+    private static let cardStyleKey = "StickyToDo.cardStyle"
+    private static let cardWidthKey = "StickyToDo.cardWidth"
 
     private init() {
         let defaults = UserDefaults.standard
@@ -92,7 +115,13 @@ final class AppSettings: ObservableObject {
         let storedTaskFontSize = defaults.object(forKey: Self.taskFontSizeKey) == nil
             ? 18
             : defaults.double(forKey: Self.taskFontSizeKey)
-        taskFontSize = (18...32).contains(storedTaskFontSize) ? storedTaskFontSize : 18
+        taskFontSize = (18...32).contains(storedTaskFontSize) ? storedTaskFontSize : Self.defaultTaskFontSize
+        cardStyle = defaults.data(forKey: Self.cardStyleKey)
+            .flatMap { try? JSONDecoder().decode(CardStyle.self, from: $0) } ?? .original
+        let storedCardWidth = defaults.object(forKey: Self.cardWidthKey) == nil
+            ? Self.defaultCardWidth
+            : CGFloat(defaults.double(forKey: Self.cardWidthKey))
+        cardWidth = min(max(storedCardWidth, Self.cardWidthRange.lowerBound), Self.cardWidthRange.upperBound)
 
         // Never start with no way back in (e.g. if the stored values were
         // edited by hand).

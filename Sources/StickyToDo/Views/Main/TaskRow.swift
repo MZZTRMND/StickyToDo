@@ -29,7 +29,7 @@ struct TaskRow<RowMenu: View>: View {
             if showCheckboxes {
                 Button(action: onToggle) {
                     Circle()
-                        .fill(task.isDone ? Theme.primaryText : .clear)
+                        .fill(task.isDone ? checkedFill : .clear)
                         .overlay(
                             Group {
                                 if task.isDone == false {
@@ -42,7 +42,7 @@ struct TaskRow<RowMenu: View>: View {
                         .overlay(
                             Image(systemName: "checkmark")
                                 .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(task.isDone ? Theme.cardBackground : .clear)
+                                .foregroundStyle(task.isDone ? checkmarkColor : .clear)
                         )
                 }
                 .buttonStyle(.plain)
@@ -145,7 +145,7 @@ struct TaskRow<RowMenu: View>: View {
             .padding(.top, 2)
             .padding(.leading, 8)
         }
-        .padding(.vertical, 12)
+        .padding(.vertical, settings.cardStyle.density.rowVerticalPadding)
         .padding(.horizontal, 16)
         // The row now sizes itself: the title wraps, the VStack grows, and
         // this is only a comfortable floor for short rows. Previously the
@@ -153,7 +153,7 @@ struct TaskRow<RowMenu: View>: View {
         // reported back up via a preference so the window could sum it -
         // that measurement ran for every task on every render and was the
         // main source of the scrolling stall.
-        .frame(minHeight: TaskRowMetrics.minimumHeight)
+        .frame(minHeight: settings.cardStyle.density.rowMinimumHeight)
         .contentShape(Rectangle())
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -190,6 +190,17 @@ struct TaskRow<RowMenu: View>: View {
         .onDisappear {
             attachmentPreviewTimer.cancel()
         }
+    }
+
+    /// A checked task's circle: the card style's accent, or the text color.
+    private var checkedFill: Color {
+        settings.cardStyle.accentColor?.color ?? Theme.primaryText
+    }
+
+    /// The tick inside it: white on an accent, otherwise the card color, which
+    /// contrasts with the text color by definition.
+    private var checkmarkColor: Color {
+        settings.cardStyle.accentColor == nil ? settings.cardStyle.background : .white
     }
 
     private var circleStrokeColor: Color {
@@ -318,15 +329,6 @@ struct TaskRow<RowMenu: View>: View {
         draftTitle = task.title
     }
 
-}
-
-/// TaskRow is generic (over its context-menu content), and generic types
-/// can't have static stored properties, so this lives outside the type.
-enum TaskRowMetrics {
-    /// A comfortable floor for a short row. Everything taller than this is
-    /// decided by SwiftUI laying the row out normally - the app no longer
-    /// measures title text itself.
-    static let minimumHeight: CGFloat = 48
 }
 
 struct TaskCategoryBadge: Equatable {

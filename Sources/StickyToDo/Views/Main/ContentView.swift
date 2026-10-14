@@ -86,6 +86,12 @@ struct ContentView: View {
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: Layout.cardCornerRadius, style: .continuous))
+            // On a colored card, text and controls resolve for the card's own
+            // lightness rather than the system appearance (see CardStyle.inkScheme).
+            // Always set (to the inherited scheme when there's no override),
+            // so switching styles doesn't swap the card's view identity.
+            .environment(\.colorScheme, settings.cardStyle.inkScheme ?? colorScheme)
+            .animation(.easeInOut(duration: 0.2), value: settings.cardStyle)
             .overlay(alignment: .topTrailing) {
                 if isHeaderQuickAddTooltipVisible {
                     quickAddButtonTooltip
@@ -260,7 +266,7 @@ struct ContentView: View {
 
     private func list(_ tasks: [TaskItem]) -> some View {
         ScrollView {
-            LazyVStack(spacing: Layout.listRowSpacing) {
+            LazyVStack(spacing: settings.cardStyle.density.rowSpacing) {
                 ForEach(tasks) { task in
                     taskRowView(for: task)
                 }
@@ -539,7 +545,7 @@ private extension ContentView {
     }
 
     var cardBackgroundColor: Color {
-        Theme.cardBackground
+        settings.cardStyle.background
     }
 
     /// Height the window should adopt. The list portion now comes from one
@@ -645,7 +651,6 @@ private enum Layout {
     /// need to stay precisely in sync with the actual row height anymore.
     static let categoryBarHeight: CGFloat = 32
 
-    static let listRowSpacing: CGFloat = 4
     static let listTopPadding: CGFloat = 16
     static let listBottomPadding: CGFloat = 16
     static let listMaxHeight: CGFloat = 600
