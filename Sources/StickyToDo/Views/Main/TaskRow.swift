@@ -23,6 +23,7 @@ struct TaskRow<RowMenu: View>: View {
     @State private var attachmentPreviewTimer = HoverTooltipTimer()
     @FocusState private var isTitleFocused: Bool
     @EnvironmentObject private var settings: AppSettings
+    @Environment(\.cardColors) private var cardColors
 
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
@@ -194,13 +195,13 @@ struct TaskRow<RowMenu: View>: View {
 
     /// A checked task's circle: the card style's accent, or the text color.
     private var checkedFill: Color {
-        settings.cardStyle.accentColor?.color ?? Theme.primaryText
+        cardColors.accent ?? Theme.primaryText
     }
 
     /// The tick inside it: white on an accent, otherwise the card color, which
     /// contrasts with the text color by definition.
     private var checkmarkColor: Color {
-        settings.cardStyle.accentColor == nil ? settings.cardStyle.background : .white
+        cardColors.accent == nil ? cardColors.background : .white
     }
 
     private var circleStrokeColor: Color {

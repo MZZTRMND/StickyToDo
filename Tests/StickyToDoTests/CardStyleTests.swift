@@ -1,59 +1,62 @@
 import XCTest
+import SwiftUI
 @testable import StickyToDo
 
 final class CardStyleTests: XCTestCase {
     func testOriginalFollowsTheSystem() {
-        XCTAssertNil(CardStyle.original.inkScheme)
+        for appearance in [ColorScheme.light, .dark] {
+            let colors = CardStyle.original.colors(for: appearance)
+            XCTAssertNil(colors.variant)
+            XCTAssertNil(colors.inkScheme)
+        }
         XCTAssertEqual(CardStyle.original.paletteName, "Original")
     }
 
-    func testLightCardsGetDarkInk() {
-        for name in ["Classic", "Mint", "Sky", "Lavender", "Blush", "Paper"] {
-            var style = CardStyle.original
-            style.apply(palette(name))
-            XCTAssertEqual(style.inkScheme, .light, "\(name) should keep dark text")
+    func testEveryColoredPaletteHasALightAndADarkVersion() {
+        for palette in CardStyle.Palette.all where palette != .original {
+            XCTAssertNotNil(palette.light, "\(palette.name) needs a light version")
+            XCTAssertNotNil(palette.dark, "\(palette.name) needs a dark version")
         }
     }
 
-    func testGraphiteGetsLightInk() {
-        var style = CardStyle.original
-        style.apply(palette("Graphite"))
-        XCTAssertEqual(style.inkScheme, .dark)
+    func testColoredPalettesMatchTheAppearanceExceptGraphite() {
+        // In light mode the cards are light (dark text); in dark mode they're
+        // deep tints (light text) - so the card always sits at home.
+        for palette in CardStyle.Palette.all where palette != .original && palette.id != "graphite" {
+            let style = CardStyle(paletteID: palette.id)
+            XCTAssertEqual(style.colors(for: .light).inkScheme, .light, "\(palette.name) in light mode")
+            XCTAssertEqual(style.colors(for: .dark).inkScheme, .dark, "\(palette.name) in dark mode")
+        }
     }
 
-    func testInkFollowsWhicheverTextHasMoreContrast() {
-        // Deep blue, luminance ~0.13: white text contrasts more (6.2 vs 3.6).
-        XCTAssertEqual(CardStyle(cardColor: RGBA(hex: 0x1F5FD1), accentColor: nil).inkScheme, .dark)
-        // Mid blue, luminance ~0.21: black text contrasts more (5.2 vs 4.1).
-        XCTAssertEqual(CardStyle(cardColor: RGBA(hex: 0x3478F6), accentColor: nil).inkScheme, .light)
-    }
-
-    func testPaletteNameIsCustomWhenEdited() {
-        var style = CardStyle.original
-        style.apply(palette("Mint"))
-        XCTAssertEqual(style.paletteName, "Mint")
-        style.accentColor = RGBA(hex: 0x123456)
-        XCTAssertEqual(style.paletteName, "Custom")
+    func testGraphiteIsADarkCardInBothAppearances() {
+        let style = CardStyle(paletteID: "graphite")
+        XCTAssertEqual(style.colors(for: .light).inkScheme, .dark)
+        XCTAssertEqual(style.colors(for: .dark).inkScheme, .dark)
     }
 
     func testRoundTripsThroughJSON() throws {
-        var style = CardStyle.original
-        style.apply(palette("Lavender"))
+        let style = CardStyle(paletteID: "lavender", density: .compact)
         let decoded = try JSONDecoder().decode(CardStyle.self, from: JSONEncoder().encode(style))
         XCTAssertEqual(decoded, style)
+        XCTAssertEqual(decoded.paletteName, "Lavender")
     }
 
-    func testStyleSavedBeforeSizeSettingsStillLoads() throws {
-        // What the first Customize version stored: colors only, no density.
-        let json = #"{"cardColor":{"red":1,"green":0.945,"blue":0.659,"alpha":1}}"#
+    func testOldFreeColorStyleFallsBackToOriginal() throws {
+        // Stored by the first Customize builds, before palettes-only.
+        let json = #"{"cardColor":{"red":1,"green":0.945,"blue":0.659,"alpha":1},"density":"airy"}"#
         let style = try JSONDecoder().decode(CardStyle.self, from: Data(json.utf8))
-        XCTAssertEqual(style.cardColor, RGBA(1, 0.945, 0.659))
-        XCTAssertEqual(style.density, .regular)
+        XCTAssertTrue(style.isOriginalColor)
+        XCTAssertEqual(style.density, .airy)
+    }
+
+    func testUnknownPaletteFallsBackToOriginal() throws {
+        let style = try JSONDecoder().decode(CardStyle.self, from: Data(#"{"paletteID":"neon"}"#.utf8))
+        XCTAssertEqual(style, .original)
     }
 
     func testResetColorKeepsSizeAndResetSizeKeepsColor() {
-        var style = CardStyle(density: .airy)
-        style.apply(palette("Mint"))
+        let style = CardStyle(paletteID: "mint", density: .airy)
 
         var colorReset = style
         colorReset.resetColor()
@@ -64,9 +67,5 @@ final class CardStyleTests: XCTestCase {
         sizeReset.resetSize()
         XCTAssertTrue(sizeReset.isOriginalSize)
         XCTAssertEqual(sizeReset.paletteName, "Mint")
-    }
-
-    private func palette(_ name: String) -> CardStyle.Palette {
-        CardStyle.Palette.all.first { $0.name == name }!
     }
 }
