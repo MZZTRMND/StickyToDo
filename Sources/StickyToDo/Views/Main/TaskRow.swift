@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-struct TaskRow<RowMenu: View>: View {
+struct TaskRow: View {
     let task: TaskItem
     let showCheckboxes: Bool
     let onToggle: () -> Void
@@ -9,18 +9,21 @@ struct TaskRow<RowMenu: View>: View {
     let onRename: (String) -> Void
     let categoryBadge: TaskCategoryBadge?
     let isDragging: Bool
-    let attachmentImage: NSImage?
+    /// The attachment's thumbnail (see AttachmentThumbnail).
+    let attachmentPreview: AttachmentPreviewSource
     let onOpenAttachment: () -> Void
+    /// An image from outside is being dragged over this row.
+    let isImageDropTarget: Bool
     let onEditingChanged: (Bool) -> Void
-    @ViewBuilder let rowMenu: () -> RowMenu
+    /// Builds the "…" / right-click menu when it's opened (see TaskMenuBuilder).
+    let makeMenu: () -> NSMenu
     @Binding var editTrigger: Bool
     @State private var isCircleHovered = false
     @State private var isRowHovered = false
     @State private var isEditing = false
     @State private var draftTitle = ""
-    @State private var isAttachmentHovered = false
-    @State private var showAttachmentPreview = false
-    @State private var attachmentPreviewTimer = HoverTooltipTimer()
+    /// Shift+Return adds a line while editing (for bullet lists).
+    @State private var newlineKeyMonitor = NewlineKeyMonitor()
     @FocusState private var isTitleFocused: Bool
     @EnvironmentObject private var settings: AppSettings
     @Environment(\.cardColors) private var cardColors
@@ -28,58 +31,49 @@ struct TaskRow<RowMenu: View>: View {
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             if showCheckboxes {
-                Button(action: onToggle) {
-                    Circle()
-                        .fill(task.isDone ? checkedFill : .clear)
-                        .overlay(
-                            Group {
-                                if task.isDone == false {
-                                    Circle()
-                                        .stroke(circleStrokeColor, lineWidth: 2)
-                                }
-                            }
-                        )
-                        .frame(width: 20, height: 20)
-                        .overlay(
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(task.isDone ? checkmarkColor : .clear)
-                        )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(task.isDone ? "Mark as not done" : "Mark as done")
-                .padding(.top, 2)
-                .animation(.easeInOut(duration: 0.18), value: isCircleHovered)
-                .onHover { hovering in
-                    isCircleHovered = hovering
-                }
+                checkbox
             }
 
             VStack(alignment: .leading, spacing: 0) {
                 if isEditing {
-                    TextField("", text: $draftTitle)
+                    // Wraps over several lines like the title it replaces, so
+                    // a long task keeps its shape while editing instead of
+                    // collapsing into one scrolling line. Return still saves;
+                    // Shift+Return adds a line (newlineKeyMonitor).
+                    TextField("", text: $draftTitle, axis: .vertical)
                         .textFieldStyle(.plain)
                         .font(.system(size: taskFontSize, weight: .medium))
                         .foregroundStyle(textPrimaryColor)
+                        .fixedSize(horizontal: false, vertical: true)
                         .focused($isTitleFocused)
                         .onSubmit(commitEdit)
                         .onExitCommand {
                             cancelEdit()
                         }
                 } else {
-                    Text(task.title)
-                        .font(.system(size: taskFontSize, weight: .medium))
-                        .foregroundStyle(taskTitleColor)
-                        .strikethrough(task.isDone, color: taskTitleColor)
-                        .fixedSize(horizontal: false, vertical: true)
+                    formattedTitle
                         .onTapGesture(count: 2) {
                             startEdit()
                         }
+                }
 
-                    if attachmentImage != nil || categoryBadge != nil {
-                        metaLine
-                            .padding(.top, 4)
-                    }
+                if let attachmentID = task.attachmentID {
+                    AttachmentThumbnail(
+                        attachmentID: attachmentID,
+                        isDone: task.isDone,
+                        source: attachmentPreview,
+                        onOpen: onOpenAttachment
+                    )
+                    .padding(.top, 8)
+                }
+
+                if isEditing == false, let categoryBadge {
+                    Text(categoryBadge.name)
+                        .font(.system(size: 12, weight: .regular))
+                        .lineLimit(1)
+                        .foregroundStyle(metaLineColor)
+                        .help(categoryBadge.name)
+                        .padding(.top, 4)
                 }
             }
             .padding(.leading, showCheckboxes ? 12 : 0)
@@ -90,9 +84,10 @@ struct TaskRow<RowMenu: View>: View {
                 if isEditing {
                     Button(action: commitEdit) {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(.system(size: 22, weight: .semibold))
                             .foregroundStyle(textPrimaryColor)
-                            .frame(width: 16, height: 16)
+                            .frame(width: 32, height: 32)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Finish editing")
@@ -100,12 +95,6 @@ struct TaskRow<RowMenu: View>: View {
                     // Flag and "..." share one slot: the flag shows at rest,
                     // and hovering crossfades the menu in over it.
                     //
-                    // The Menu stays in the tree and is revealed with opacity
-                    // rather than being created on hover: while you scroll,
-                    // rows slide under a stationary cursor, so hover-gating
-                    // meant repeatedly building and tearing down a real
-                    // NSPopUpButton mid-gesture. Created once when the row
-                    // mounts is much cheaper than that.
                     ZStack {
                         if task.isImportant {
                             Image(systemName: "flag.fill")
@@ -114,31 +103,22 @@ struct TaskRow<RowMenu: View>: View {
                                 .opacity(showEllipsisMenu ? 0 : 1)
                         }
 
-                        Menu {
-                            rowMenu()
-                        } label: {
-                            // A label that's *only* an Image gets handed off to
-                            // the native pull-down button's image slot, which
-                            // renders it small and black regardless of
-                            // font/foregroundStyle - wrapping it forces SwiftUI
-                            // to render the label itself, fixing the color.
-                            ZStack {
-                                Image(systemName: "ellipsis")
-                                    .foregroundStyle(Theme.secondaryText)
-                                    .accessibilityHidden(true)
-                            }
+                        // A plain icon; the menu is built when it's clicked.
+                        Image(systemName: "ellipsis")
+                            .foregroundStyle(Theme.secondaryText)
                             .frame(width: 32, height: 32)
-                        }
-                        .menuStyle(.borderlessButton)
-                        .menuIndicator(.hidden)
-                        .accessibilityLabel("More actions")
-                        .opacity(showEllipsisMenu ? 1 : 0)
-                        .allowsHitTesting(showEllipsisMenu)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                makeMenu().popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+                            }
+                            .accessibilityElement()
+                            .accessibilityLabel("More actions")
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityAction { makeMenu().popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil) }
+                            .opacity(showEllipsisMenu ? 1 : 0)
+                            .allowsHitTesting(showEllipsisMenu)
                     }
-                    // Reserves the slot and replaces the Menu's old
-                    // .fixedSize(), which made SwiftUI query the popup's
-                    // intrinsic size while the popup's own update invalidated
-                    // that same intrinsic size.
+                    // Reserves the slot, so the title wraps the same with or without the flag.
                     .frame(width: 32, height: 32)
                     .animation(.easeInOut(duration: 0.12), value: isRowHovered)
                 }
@@ -158,15 +138,28 @@ struct TaskRow<RowMenu: View>: View {
         .contentShape(Rectangle())
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill((isRowHovered || isDragging) ? rowHoverColor : .clear)
+                .fill((isRowHovered || isDragging || isImageDropTarget) ? rowHoverColor : .clear)
                 // Scoped to the background alone, so a hover change doesn't
                 // re-animate the whole row subtree (including the menu).
                 .animation(.easeInOut(duration: 0.18), value: isRowHovered)
                 .animation(.easeInOut(duration: 0.18), value: isDragging)
         )
+        .overlay {
+            if isImageDropTarget {
+                imageDropHint
+            }
+        }
+        .animation(.easeInOut(duration: 0.12), value: isImageDropTarget)
         .onTapGesture {
             guard isEditing == false else { return }
             onToggle()
+        }
+        // Right-click menu. Left off while editing, so the text field keeps
+        // its own Cut/Copy/Paste menu.
+        .overlay {
+            if isEditing == false {
+                RightClickMenuArea(makeMenu: makeMenu)
+            }
         }
         .onHover { hovering in
             isRowHovered = hovering
@@ -181,6 +174,11 @@ struct TaskRow<RowMenu: View>: View {
             editTrigger = false
         }
         .onChange(of: isEditing) { _, isEditing in
+            if isEditing {
+                newlineKeyMonitor.start()
+            } else {
+                newlineKeyMonitor.stop()
+            }
             onEditingChanged(isEditing)
         }
         .onChange(of: isTitleFocused) { _, focused in
@@ -189,8 +187,70 @@ struct TaskRow<RowMenu: View>: View {
             }
         }
         .onDisappear {
-            attachmentPreviewTimer.cancel()
+            newlineKeyMonitor.stop()
         }
+    }
+
+    /// The title with its light Markdown shown as formatting (see
+    /// TaskTitleFormat). A one-line title is a single Text, as before.
+    @ViewBuilder
+    private var formattedTitle: some View {
+        let lines = TaskTitleFormat.lines(from: task.title)
+        if lines.count == 1, lines[0].isBullet == false {
+            titleText(lines[0].text)
+        } else {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(lines.indices, id: \.self) { index in
+                    let line = lines[index]
+                    if line.isBullet {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            titleText(AttributedString("•"))
+                            titleText(line.text)
+                        }
+                    } else {
+                        titleText(line.text)
+                    }
+                }
+            }
+        }
+    }
+
+    private func titleText(_ text: AttributedString) -> some View {
+        Text(text)
+            .font(.system(size: taskFontSize, weight: .medium))
+            .foregroundStyle(taskTitleColor)
+            .strikethrough(task.isDone, color: taskTitleColor)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// A drawn circle, not a Button: clicking anywhere on the row already
+    /// checks the task off (see .onTapGesture in body), and a button per row
+    /// made every row ~4 ms more expensive to build.
+    private var checkbox: some View {
+        let circle = Circle()
+            .fill(task.isDone ? checkedFill : .clear)
+            .overlay {
+                if task.isDone == false {
+                    Circle().stroke(circleStrokeColor, lineWidth: 2)
+                }
+            }
+            .frame(width: 20, height: 20)
+            .overlay {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(task.isDone ? checkmarkColor : .clear)
+            }
+        return circle
+            .contentShape(Circle())
+            .accessibilityElement()
+            .accessibilityLabel(task.isDone ? "Mark as not done" : "Mark as done")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { onToggle() }
+            .padding(.top, 2)
+            .animation(.easeInOut(duration: 0.18), value: isCircleHovered)
+            .onHover { hovering in
+                isCircleHovered = hovering
+            }
     }
 
     /// A checked task's circle: the card style's accent, or the text color.
@@ -239,75 +299,20 @@ struct TaskRow<RowMenu: View>: View {
         task.isDone ? completedTextColor : Theme.secondaryText
     }
 
-    @ViewBuilder
-    private var metaLine: some View {
-        HStack(spacing: 4) {
-            if let attachmentImage {
-                HStack(spacing: 3) {
-                    Image(systemName: "paperclip")
-                        .font(.system(size: 12, weight: .regular))
-                    Text("Image")
-                        .font(.system(size: 12, weight: .regular))
-                }
-                .foregroundStyle(metaLineColor)
-                .contentShape(Rectangle())
-                .onHover { hovering in
-                    isAttachmentHovered = hovering
-                    handleAttachmentHoverChanged(hovering)
-                    if hovering {
-                        NSCursor.pointingHand.set()
-                    } else {
-                        NSCursor.arrow.set()
-                    }
-                }
-                .onTapGesture {
-                    onOpenAttachment()
-                }
-                .overlay(alignment: .topLeading) {
-                    if showAttachmentPreview {
-                        Image(nsImage: attachmentImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 120, height: 120)
-                            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            .offset(y: -130)
-                            .transition(.opacity)
-                    }
-                }
-                .accessibilityLabel("View attachment")
-
-                if categoryBadge != nil {
-                    Text("·")
-                        .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(metaLineColor)
-                }
+    /// Shown while an image is dragged over the row: an accent outline and
+    /// what dropping will do - a task holds one image, so a second replaces it.
+    private var imageDropHint: some View {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .strokeBorder(cardColors.accent ?? Theme.accent, lineWidth: 1.5)
+            .overlay(alignment: .bottomTrailing) {
+                Text(task.attachmentID == nil ? "Drop to attach" : "Drop to replace image")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Theme.secondaryText)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 6)
             }
-
-            if let categoryBadge {
-                Text(categoryBadge.name)
-                    .font(.system(size: 12, weight: .regular))
-                    .lineLimit(1)
-                    .foregroundStyle(metaLineColor)
-                    .help(categoryBadge.name)
-            }
-        }
-    }
-
-    private func handleAttachmentHoverChanged(_ hovering: Bool) {
-        attachmentPreviewTimer.cancel()
-        if hovering == false {
-            withAnimation(.easeOut(duration: 0.12)) {
-                showAttachmentPreview = false
-            }
-            return
-        }
-
-        attachmentPreviewTimer.scheduleShow {
-            guard isAttachmentHovered else { return }
-            withAnimation(.easeInOut(duration: 0.15)) {
-                showAttachmentPreview = true
-            }
-        }
+            .allowsHitTesting(false)
+            .transition(.opacity)
     }
 
     private func startEdit() {

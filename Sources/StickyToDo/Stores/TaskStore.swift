@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import UniformTypeIdentifiers
 
 final class TaskStore: ObservableObject {
     @Published var tasks: [TaskItem] = [] {
@@ -28,7 +29,7 @@ final class TaskStore: ObservableObject {
     private var lastSavedTaskData: Data?
     private var lastSavedCategoryData: Data?
 
-    init(userDefaults: UserDefaults = .standard, attachmentStore: AttachmentStore = AttachmentStore()) {
+    init(userDefaults: UserDefaults = .standard, attachmentStore: AttachmentStore = AttachmentStore(savesInBackground: true)) {
         self.userDefaults = userDefaults
         self.attachmentStore = attachmentStore
         load()
@@ -39,10 +40,21 @@ final class TaskStore: ObservableObject {
     func addTask(title: String, categoryID: UUID? = nil, attachmentImage: NSImage? = nil) -> TaskItem? {
         guard let trimmed = normalizedTitle(from: title) else { return nil }
         var newTask = TaskItem(title: trimmed, categoryID: categoryID)
-        if let attachmentImage, let id = attachmentStore.save(attachmentImage) {
-            newTask.attachmentID = id
+        // The task appears right away; its image is attached once saved
+        // (immediately when the attachment store saves synchronously).
+        var isInserted = false
+        if let attachmentImage {
+            let taskID = newTask.id
+            attachmentStore.save(attachmentImage) { [weak self] id in
+                if isInserted {
+                    self?.attachSavedImage(id, toTaskID: taskID)
+                } else {
+                    newTask.attachmentID = id
+                }
+            }
         }
         tasks.insert(newTask, at: 0)
+        isInserted = true
         return newTask
     }
 
@@ -127,12 +139,24 @@ final class TaskStore: ObservableObject {
         tasks.insert(item, at: adjustedIndex)
     }
 
+    /// Saves in the background (a big screenshot takes ~90 ms to encode),
+    /// then swaps it in. The old image is only deleted once the new one is
+    /// saved, so a failed save leaves the task as it was.
     func setAttachment(_ image: NSImage, for task: TaskItem) {
-        guard let index = indexOfTask(task) else { return }
-        // Save the new image before deleting the old one: if saving fails,
-        // the task keeps its old, still-existing attachment instead of
-        // pointing at a deleted file.
-        guard let newID = attachmentStore.save(image) else { return }
+        guard indexOfTask(task) != nil else { return }
+        let taskID = task.id
+        attachmentStore.save(image) { [weak self] id in
+            self?.attachSavedImage(id, toTaskID: taskID)
+        }
+    }
+
+    private func attachSavedImage(_ newID: UUID?, toTaskID taskID: UUID) {
+        guard let newID else { return }
+        guard let index = tasks.firstIndex(where: { $0.id == taskID }) else {
+            // The task was deleted while its image was being saved.
+            attachmentStore.delete(id: newID)
+            return
+        }
         if let oldID = tasks[index].attachmentID {
             attachmentStore.delete(id: oldID)
         }
@@ -152,9 +176,67 @@ final class TaskStore: ObservableObject {
         return attachmentStore.loadImage(for: id)
     }
 
+    /// The row's small thumbnail; `completion` runs on the main thread.
+    func loadAttachmentThumbnail(for attachmentID: UUID, completion: @escaping (NSImage?) -> Void) {
+        attachmentStore.loadThumbnail(for: attachmentID, completion: completion)
+    }
+
+    func cachedAttachmentThumbnail(for attachmentID: UUID) -> NSImage? {
+        attachmentStore.cachedThumbnail(for: attachmentID)
+    }
+
+    func attachmentURL(for attachmentID: UUID) -> URL {
+        attachmentStore.url(for: attachmentID)
+    }
+
+    /// Opens the image in Quick Look.
     func openAttachment(for task: TaskItem) {
         guard let id = task.attachmentID else { return }
-        NSWorkspace.shared.open(attachmentStore.url(for: id))
+        AttachmentQuickLook.shared.show(attachmentStore.url(for: id))
+    }
+
+    /// Puts the task's image on the clipboard, as PNG and TIFF so any app
+    /// can paste it. Returns false if there's no image to copy.
+    @discardableResult
+    func copyAttachment(for task: TaskItem, to pasteboard: NSPasteboard = .general) -> Bool {
+        guard let id = task.attachmentID,
+              let png = try? Data(contentsOf: attachmentStore.url(for: id)) else { return false }
+        let item = NSPasteboardItem()
+        item.setData(png, forType: .png)
+        if let tiff = NSImage(data: png)?.tiffRepresentation {
+            item.setData(tiff, forType: .tiff)
+        }
+        pasteboard.clearContents()
+        return pasteboard.writeObjects([item])
+    }
+
+    /// What dragging a task's image out of the card carries: the PNG, plus
+    /// a file for apps like Finder. The file is handed over as a copy, so a
+    /// drop can never move the attachment out of the app's folder.
+    func attachmentDragItem(for task: TaskItem) -> NSItemProvider? {
+        guard let id = task.attachmentID else { return nil }
+        let url = attachmentStore.url(for: id)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let provider = NSItemProvider()
+        provider.suggestedName = Self.attachmentFileName(for: task.title)
+        provider.registerFileRepresentation(forTypeIdentifier: UTType.png.identifier, fileOptions: [], visibility: .all) { completion in
+            completion(url, false, nil)
+            return nil
+        }
+        return provider
+    }
+
+    /// "Design popup.png" from the title's first line: marks and characters
+    /// file names can't hold removed, kept short.
+    static func attachmentFileName(for title: String) -> String {
+        let firstLine = title.split(separator: "\n").first.map(String.init) ?? ""
+        let plain = String(TaskTitleFormat.inline(firstLine).characters)
+        let cleaned = plain
+            .components(separatedBy: CharacterSet(charactersIn: "/:\\?%*|\"<>"))
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let short = String(cleaned.prefix(40)).trimmingCharacters(in: .whitespaces)
+        return short.isEmpty ? "Image" : short
     }
 
     /// Removes completed tasks left over from a previous day, keeping today's
@@ -255,6 +337,20 @@ final class TaskStore: ObservableObject {
         if completedTaskCount != completed {
             completedTaskCount = completed
         }
+    }
+
+    /// Open (not done) tasks: in total, and per category. Shown as the
+    /// counts on the category tabs.
+    func openTaskCounts() -> (all: Int, byCategory: [UUID: Int]) {
+        var all = 0
+        var byCategory: [UUID: Int] = [:]
+        for task in tasks where task.isDone == false {
+            all += 1
+            if let categoryID = task.categoryID {
+                byCategory[categoryID, default: 0] += 1
+            }
+        }
+        return (all, byCategory)
     }
 
     private func normalizedTitle(from raw: String) -> String? {

@@ -67,4 +67,54 @@ final class AttachmentStoreTests: XCTestCase {
         XCTAssertEqual(AttachmentStore.folderName(forBundleID: "com.sticky.todo.test"), "StickyToDo (com.sticky.todo.test)")
         XCTAssertEqual(AttachmentStore.folderName(forBundleID: nil), "StickyToDo (unbundled)")
     }
+    private func makeLargeImage() -> NSImage {
+        let image = NSImage(size: NSSize(width: 1000, height: 500))
+        image.lockFocus()
+        NSColor.green.setFill()
+        NSRect(x: 0, y: 0, width: 1000, height: 500).fill()
+        image.unlockFocus()
+        return image
+    }
+
+    private func loadThumbnailSync(_ store: AttachmentStore, _ id: UUID) -> NSImage? {
+        var result: NSImage?
+        store.loadThumbnail(for: id) { result = $0 }
+        return result
+    }
+
+    func testSaveWritesASmallThumbnail() throws {
+        let id = try XCTUnwrap(store.save(makeLargeImage()))
+
+        let thumbnail = try XCTUnwrap(NSBitmapImageRep(data: Data(contentsOf: store.thumbnailURL(for: id))))
+        XCTAssertLessThanOrEqual(max(thumbnail.pixelsWide, thumbnail.pixelsHigh), AttachmentStore.thumbnailMaxPixels)
+        XCTAssertEqual(Double(thumbnail.pixelsWide) / Double(thumbnail.pixelsHigh), 2, accuracy: 0.05)
+    }
+
+    func testThumbnailIsMadeForImagesSavedWithoutOne() throws {
+        let id = try XCTUnwrap(store.save(makeLargeImage()))
+        try FileManager.default.removeItem(at: store.thumbnailURL(for: id))
+
+        XCTAssertNotNil(loadThumbnailSync(store, id))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.thumbnailURL(for: id).path))
+    }
+
+    func testDeleteRemovesTheThumbnailToo() throws {
+        let id = try XCTUnwrap(store.save(makeLargeImage()))
+
+        store.delete(id: id)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: store.thumbnailURL(for: id).path))
+        XCTAssertNil(loadThumbnailSync(store, id))
+    }
+
+    func testBackgroundSaveCallsBackOnTheMainThread() {
+        let backgroundStore = AttachmentStore(directory: directory, savesInBackground: true)
+        let saved = expectation(description: "saved")
+        backgroundStore.save(makeTestImage()) { id in
+            XCTAssertTrue(Thread.isMainThread)
+            XCTAssertNotNil(id)
+            saved.fulfill()
+        }
+        wait(for: [saved], timeout: 5)
+    }
 }

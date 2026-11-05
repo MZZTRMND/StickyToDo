@@ -333,4 +333,87 @@ final class TaskStoreTests: XCTestCase {
         XCTAssertEqual(store.tasks[0].attachmentID, oldID)
         XCTAssertTrue(FileManager.default.fileExists(atPath: attachmentStore.url(for: oldID).path))
     }
+    func testImageFinishingAfterItsTaskWasDeletedIsCleanedUp() {
+        let backgroundAttachments = AttachmentStore(directory: attachmentDirectory, savesInBackground: true)
+        let store = TaskStore(userDefaults: defaults, attachmentStore: backgroundAttachments)
+        store.addTask(title: "Task")
+        store.setAttachment(makeTestImage(), for: store.tasks[0])
+        store.delete(store.tasks[0])
+
+        // Let the background save finish and report back.
+        let drained = expectation(description: "drained")
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { DispatchQueue.main.async { drained.fulfill() } }
+        wait(for: [drained], timeout: 5)
+
+        let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: attachmentDirectory.path)) ?? []
+        XCTAssertEqual(leftovers, [])
+    }
+
+    func testOpenTaskCountsSkipDoneTasks() throws {
+        let store = makeStore()
+        let work = try XCTUnwrap(store.createCategory(name: "Work"))
+        let home = try XCTUnwrap(store.createCategory(name: "Home"))
+        _ = store.addTask(title: "w1", categoryID: work.id)
+        let done = try XCTUnwrap(store.addTask(title: "w2", categoryID: work.id))
+        _ = store.addTask(title: "w3", categoryID: work.id)
+        _ = store.addTask(title: "loose")
+        store.toggleDone(for: done)
+
+        let counts = store.openTaskCounts()
+        XCTAssertEqual(counts.all, 3)
+        XCTAssertEqual(counts.byCategory[work.id], 2)
+        XCTAssertNil(counts.byCategory[home.id])
+    }
+
+    func testCopyAttachmentPutsPNGAndTIFFOnThePasteboard() throws {
+        let store = makeStore()
+        let task = try XCTUnwrap(store.addTask(title: "Design popup", attachmentImage: makeTestImage()))
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("StickyToDoTests.\(UUID().uuidString)"))
+        defer { pasteboard.releaseGlobally() }
+
+        XCTAssertTrue(store.copyAttachment(for: store.tasks[0], to: pasteboard))
+        XCTAssertNotNil(pasteboard.data(forType: .png))
+        XCTAssertNotNil(pasteboard.data(forType: .tiff))
+        XCTAssertNotNil(NSImage(pasteboard: pasteboard))
+
+        let noImage = try XCTUnwrap(store.addTask(title: "Plain"))
+        XCTAssertFalse(store.copyAttachment(for: noImage, to: pasteboard))
+        _ = task
+    }
+
+    func testDragItemOffersTheImageFileAsACopy() throws {
+        let store = makeStore()
+        _ = store.addTask(title: "**Design** popup / v2", attachmentImage: makeTestImage())
+        let task = store.tasks[0]
+        let provider = try XCTUnwrap(store.attachmentDragItem(for: task))
+        XCTAssertEqual(provider.suggestedName, "Design popup   v2")
+        XCTAssertTrue(provider.hasItemConformingToTypeIdentifier("public.png"))
+
+        let loaded = expectation(description: "file")
+        provider.loadFileRepresentation(forTypeIdentifier: "public.png") { url, _ in
+            // The receiver gets a copy, never the attachment itself.
+            XCTAssertNotNil(url)
+            XCTAssertNotEqual(url?.standardizedFileURL, store.attachmentURL(for: task.attachmentID!).standardizedFileURL)
+            loaded.fulfill()
+        }
+        wait(for: [loaded], timeout: 5)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: store.attachmentURL(for: task.attachmentID!).path))
+    }
+
+    func testAttachmentFileNameUsesThePlainFirstLine() {
+        XCTAssertEqual(TaskStore.attachmentFileName(for: "Design *popup*\n- detail"), "Design popup")
+        XCTAssertEqual(TaskStore.attachmentFileName(for: "   "), "Image")
+        XCTAssertEqual(TaskStore.attachmentFileName(for: String(repeating: "a", count: 80)).count, 40)
+    }
+
+    func testThumbnailIsCachedAfterLoading() throws {
+        let store = makeStore()
+        _ = store.addTask(title: "Has image", attachmentImage: makeTestImage())
+        let id = try XCTUnwrap(store.tasks[0].attachmentID)
+        XCTAssertNil(store.cachedAttachmentThumbnail(for: id))
+        var loaded: NSImage?
+        store.loadAttachmentThumbnail(for: id) { loaded = $0 }
+        XCTAssertNotNil(loaded)
+        XCTAssertTrue(store.cachedAttachmentThumbnail(for: id) === loaded)
+    }
 }

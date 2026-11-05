@@ -8,6 +8,9 @@ struct QuickAddOverlayView: View {
 
     @EnvironmentObject private var store: TaskStore
     @EnvironmentObject private var categoryUI: CategoryUIState
+    @EnvironmentObject private var session: QuickAddSession
+    /// The showCount last prepared for, so a show is never set up twice.
+    @State private var preparedShowCount = 0
     @State private var text = ""
     @State private var chosenCategoryID: UUID?
     @State private var pendingImage: NSImage?
@@ -21,7 +24,6 @@ struct QuickAddOverlayView: View {
     @State private var isClosing = false
     @State private var placeholderIndex = 0
     @FocusState private var isInputFocused: Bool
-    private let placeholderTimer = Timer.publish(every: 5.0, on: .main, in: .common).autoconnect()
 
     var body: some View {
         ZStack {
@@ -125,19 +127,25 @@ struct QuickAddOverlayView: View {
             // back into the field to keep typing.
             isInputFocused = true
         }
+        // This view is built once and reused (see AppDelegate.makeQuickAddWindow),
+        // so each opening starts fresh here rather than in onAppear.
         .onAppear {
-            chosenCategoryID = categoryUI.categoryIDForNewTask(in: store)
-            isAnimatingIn = false
-            withAnimation(.spring(response: 0.24, dampingFraction: 0.82)) {
-                isAnimatingIn = true
-            }
-            DispatchQueue.main.async {
-                isInputFocused = true
-            }
-            pasteImageMonitor.isActive = true
             pasteImageMonitor.start { image in
                 pendingImage = image
             }
+            if session.isVisible {
+                prepareForShow()
+            }
+        }
+        .onChange(of: session.showCount) {
+            prepareForShow()
+        }
+        .onChange(of: session.isVisible) { _, isVisible in
+            guard isVisible == false else { return }
+            // Hidden: stop catching ⌘V, which belongs to the card again.
+            pasteImageMonitor.isActive = false
+            pendingImagePreviewTimer.cancel()
+            showPendingImagePreview = false
         }
         .onDisappear {
             pasteImageMonitor.stop()
@@ -148,8 +156,14 @@ struct QuickAddOverlayView: View {
                 isInputFocused = true
             }
         }
-        .onReceive(placeholderTimer) { _ in
-            rotatePlaceholderIfNeeded()
+        // Rotates the placeholder only while open; a timer that kept firing
+        // while hidden would wake the app every 5 s for nothing.
+        .task(id: session.showCount) {
+            while session.isVisible {
+                try? await Task.sleep(for: .seconds(5))
+                guard Task.isCancelled == false, session.isVisible else { return }
+                rotatePlaceholderIfNeeded()
+            }
         }
     }
 
@@ -223,6 +237,24 @@ struct QuickAddOverlayView: View {
         text = ""
         pendingImage = nil
         dismissOverlay()
+    }
+
+    private func prepareForShow() {
+        guard preparedShowCount != session.showCount else { return }
+        preparedShowCount = session.showCount
+        text = ""
+        pendingImage = nil
+        isClosing = false
+        showPendingImagePreview = false
+        chosenCategoryID = categoryUI.categoryIDForNewTask(in: store)
+        isAnimatingIn = false
+        withAnimation(.spring(response: 0.24, dampingFraction: 0.82)) {
+            isAnimatingIn = true
+        }
+        DispatchQueue.main.async {
+            isInputFocused = true
+        }
+        pasteImageMonitor.isActive = true
     }
 
     private func rotatePlaceholderIfNeeded() {
