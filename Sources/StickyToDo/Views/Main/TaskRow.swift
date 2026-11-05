@@ -57,6 +57,16 @@ struct TaskRow: View {
                         }
                 }
 
+                // Right under the text it belongs to, before any image.
+                if isEditing == false, let categoryBadge {
+                    Text(categoryBadge.name)
+                        .font(.system(size: 12, weight: .regular))
+                        .lineLimit(1)
+                        .foregroundStyle(metaLineColor)
+                        .help(categoryBadge.name)
+                        .padding(.top, 2)
+                }
+
                 if let attachmentID = task.attachmentID {
                     AttachmentThumbnail(
                         attachmentID: attachmentID,
@@ -65,15 +75,6 @@ struct TaskRow: View {
                         onOpen: onOpenAttachment
                     )
                     .padding(.top, 8)
-                }
-
-                if isEditing == false, let categoryBadge {
-                    Text(categoryBadge.name)
-                        .font(.system(size: 12, weight: .regular))
-                        .lineLimit(1)
-                        .foregroundStyle(metaLineColor)
-                        .help(categoryBadge.name)
-                        .padding(.top, 4)
                 }
             }
             .padding(.leading, showCheckboxes ? 12 : 0)
@@ -299,17 +300,19 @@ struct TaskRow: View {
         task.isDone ? completedTextColor : Theme.secondaryText
     }
 
-    /// Shown while an image is dragged over the row: an accent outline and
-    /// what dropping will do - a task holds one image, so a second replaces it.
+    /// Shown while an image is dragged over the row: an accent outline, and
+    /// "Drop to attach" when the task has no image yet.
     private var imageDropHint: some View {
         RoundedRectangle(cornerRadius: 16, style: .continuous)
             .strokeBorder(cardColors.accent ?? Theme.accent, lineWidth: 1.5)
             .overlay(alignment: .bottomTrailing) {
-                Text(task.attachmentID == nil ? "Drop to attach" : "Drop to replace image")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Theme.secondaryText)
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 6)
+                if task.attachmentID == nil {
+                    Text("Drop to attach")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(Theme.secondaryText)
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 6)
+                }
             }
             .allowsHitTesting(false)
             .transition(.opacity)
