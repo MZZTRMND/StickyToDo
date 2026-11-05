@@ -348,4 +348,20 @@ final class TaskStoreTests: XCTestCase {
         let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: attachmentDirectory.path)) ?? []
         XCTAssertEqual(leftovers, [])
     }
+
+    func testOpenTaskCountsSkipDoneTasks() throws {
+        let store = makeStore()
+        let work = try XCTUnwrap(store.createCategory(name: "Work"))
+        let home = try XCTUnwrap(store.createCategory(name: "Home"))
+        _ = store.addTask(title: "w1", categoryID: work.id)
+        let done = try XCTUnwrap(store.addTask(title: "w2", categoryID: work.id))
+        _ = store.addTask(title: "w3", categoryID: work.id)
+        _ = store.addTask(title: "loose")
+        store.toggleDone(for: done)
+
+        let counts = store.openTaskCounts()
+        XCTAssertEqual(counts.all, 3)
+        XCTAssertEqual(counts.byCategory[work.id], 2)
+        XCTAssertNil(counts.byCategory[home.id])
+    }
 }

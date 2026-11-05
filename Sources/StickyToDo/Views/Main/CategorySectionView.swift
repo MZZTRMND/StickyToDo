@@ -14,9 +14,11 @@ struct CategorySectionView: View {
     @State private var isHovered = false
 
     var body: some View {
+        let counts = store.openTaskCounts()
         HStack(spacing: Layout.categoryChipSpacing) {
             categoryChip(
                 title: "All",
+                openCount: counts.all,
                 isSelected: categoryUI.selectedCategoryID == nil,
                 isDropHovered: categoryUI.isAllCategoryDropTargeted
             ) {
@@ -33,7 +35,7 @@ struct CategorySectionView: View {
             )
 
             ForEach(store.categories) { category in
-                categoryChipView(for: category)
+                categoryChipView(for: category, openCount: counts.byCategory[category.id] ?? 0)
             }
 
             if isHovered {
@@ -77,7 +79,7 @@ struct CategorySectionView: View {
     }
 
     @ViewBuilder
-    private func categoryChipView(for category: TaskCategory) -> some View {
+    private func categoryChipView(for category: TaskCategory, openCount: Int) -> some View {
         if categoryUI.editingCategoryID == category.id {
             TextField("", text: $categoryUI.categoryNameDraft)
                 .textFieldStyle(.plain)
@@ -108,6 +110,7 @@ struct CategorySectionView: View {
         } else {
             categoryChip(
                 title: category.name,
+                openCount: openCount,
                 isSelected: categoryUI.selectedCategoryID == category.id,
                 isDropHovered: categoryUI.categoryDropTargetedIDs.contains(category.id)
             ) {
@@ -142,6 +145,7 @@ struct CategorySectionView: View {
     @ViewBuilder
     private func categoryChip(
         title: String,
+        openCount: Int,
         isSelected: Bool,
         isDropHovered: Bool,
         action: @escaping () -> Void
@@ -149,11 +153,11 @@ struct CategorySectionView: View {
         let isHighlighted = isSelected || isDropHovered
         Group {
             if isHighlighted {
-                Button(title, action: action)
+                Button(action: action) { chipLabel(title: title, openCount: openCount) }
                     .buttonStyle(.glassProminent)
                     .tint(cardColors.accent ?? Theme.accent)
             } else {
-                Button(title, action: action)
+                Button(action: action) { chipLabel(title: title, openCount: openCount) }
                     .buttonStyle(.glass)
             }
         }
@@ -161,9 +165,24 @@ struct CategorySectionView: View {
         .controlSize(.regular)
         .font(.system(size: Layout.chipFontSize))
         .lineLimit(1)
+        .accessibilityLabel(openCount > 0 ? "\(title), \(openCount) open" : title)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .animation(.easeInOut(duration: 0.12), value: isDropHovered)
         .pointingHandCursorOnHover()
+    }
+}
+
+/// "Work 3": the name, then the number of open tasks, dimmed. Hidden at 0.
+/// Opacity rather than a fixed color, so the number follows the button's
+/// own label color - white on the selected tab, the text color otherwise.
+private func chipLabel(title: String, openCount: Int) -> some View {
+    HStack(spacing: 5) {
+        Text(title)
+        if openCount > 0 {
+            Text("\(openCount)")
+                .monospacedDigit()
+                .opacity(0.55)
+        }
     }
 }
 

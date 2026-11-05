@@ -285,6 +285,20 @@ final class TaskStore: ObservableObject {
         }
     }
 
+    /// Open (not done) tasks: in total, and per category. Shown as the
+    /// counts on the category tabs.
+    func openTaskCounts() -> (all: Int, byCategory: [UUID: Int]) {
+        var all = 0
+        var byCategory: [UUID: Int] = [:]
+        for task in tasks where task.isDone == false {
+            all += 1
+            if let categoryID = task.categoryID {
+                byCategory[categoryID, default: 0] += 1
+            }
+        }
+        return (all, byCategory)
+    }
+
     private func normalizedTitle(from raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
