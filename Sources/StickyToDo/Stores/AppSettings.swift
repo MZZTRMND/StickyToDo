@@ -23,7 +23,7 @@ final class AppSettings: ObservableObject {
     static let shared = AppSettings()
 
     // appearance/showCheckboxes use @AppStorage since nothing subscribes to their
-    // Combine publisher. launchAtLogin/showInMenuBar stay @Published because
+    // Combine publisher. launchAtLogin/showInDock stay @Published because
     // AppDelegate subscribes to `settings.$property` directly, a projection
     // @AppStorage does not provide.
     @AppStorage(AppSettings.appearanceKey) var appearance: Appearance = .system
@@ -32,14 +32,9 @@ final class AppSettings: ObservableObject {
             UserDefaults.standard.set(launchAtLogin, forKey: Self.launchAtLoginKey)
         }
     }
-    @Published var showInMenuBar: Bool {
-        didSet {
-            UserDefaults.standard.set(showInMenuBar, forKey: Self.showInMenuBarKey)
-        }
-    }
     /// Off makes this a menu-bar-only app: no Dock icon, no ⌘Tab entry, no
-    /// menu bar menus. It and showInMenuBar can't both be off - Settings
-    /// disables whichever toggle is the last way back into the app.
+    /// menu bar menus. The menu bar icon is always there, so there's always
+    /// a way back into the app.
     @Published var showInDock: Bool {
         didSet {
             UserDefaults.standard.set(showInDock, forKey: Self.showInDockKey)
@@ -92,7 +87,6 @@ final class AppSettings: ObservableObject {
 
     private static let appearanceKey = "StickyToDo.appearance"
     private static let launchAtLoginKey = "StickyToDo.launchAtLogin"
-    private static let showInMenuBarKey = "StickyToDo.showInMenuBar"
     private static let showInDockKey = "StickyToDo.showInDock"
     private static let taskFontSizeKey = "StickyToDo.taskFontSize"
     private static let showCheckboxesKey = "StickyToDo.showCheckboxes"
@@ -108,7 +102,6 @@ final class AppSettings: ObservableObject {
         }
 
         launchAtLogin = storedBool(forKey: Self.launchAtLoginKey, default: false)
-        showInMenuBar = storedBool(forKey: Self.showInMenuBarKey, default: true)
         showInDock = storedBool(forKey: Self.showInDockKey, default: true)
         isPinnedOnTop = storedBool(forKey: Self.pinnedOnTopKey, default: false)
 
@@ -122,12 +115,6 @@ final class AppSettings: ObservableObject {
             ? Self.defaultCardWidth
             : CGFloat(defaults.double(forKey: Self.cardWidthKey))
         cardWidth = min(max(storedCardWidth, Self.cardWidthRange.lowerBound), Self.cardWidthRange.upperBound)
-
-        // Never start with no way back in (e.g. if the stored values were
-        // edited by hand).
-        if showInDock == false && showInMenuBar == false {
-            showInMenuBar = true
-        }
     }
 
     private var supportsBundledSystemFeatures: Bool {
