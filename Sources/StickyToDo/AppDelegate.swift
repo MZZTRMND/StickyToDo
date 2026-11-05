@@ -68,6 +68,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             name: NSApplication.didBecomeActiveNotification,
             object: nil
         )
+        // A card left open overnight never "becomes active" at midnight, so
+        // clear yesterday's done tasks when the day actually changes too.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleCalendarDayChanged),
+            name: .NSCalendarDayChanged,
+            object: nil
+        )
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -338,9 +346,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             // Keep the toggle consistent with the real system status.
             // This can fail in some unsigned/dev execution contexts.
-            let syncedValue = (service.status == .enabled)
-            if settings.launchAtLogin != syncedValue {
-                settings.launchAtLogin = syncedValue
+            // On the next run loop: this runs inside the $launchAtLogin sink,
+            // which @Published calls *before* storing the new value, so a
+            // write made right here would be overwritten by the toggle's own
+            // value as soon as the sink returns.
+            DispatchQueue.main.async { [settings] in
+                let syncedValue = (service.status == .enabled)
+                if settings.launchAtLogin != syncedValue {
+                    settings.launchAtLogin = syncedValue
+                }
             }
             presentErrorAlert(
                 title: "Launch at Login Unavailable",
@@ -459,6 +473,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func handleAppDidBecomeActive() {
         _ = store.purgeStaleCompletedTasks()
+    }
+
+    /// NSCalendarDayChanged isn't guaranteed to arrive on the main thread.
+    @objc private func handleCalendarDayChanged() {
+        DispatchQueue.main.async { [weak self] in
+            _ = self?.store.purgeStaleCompletedTasks()
+        }
     }
 
     private func preferredWindowSize(fallback: NSSize) -> NSSize {

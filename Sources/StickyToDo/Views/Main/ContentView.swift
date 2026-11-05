@@ -9,6 +9,11 @@ struct ContentView: View {
     @State private var isHeaderQuickAddTooltipVisible = false
     @State private var headerQuickAddTooltipTimer = HoverTooltipTimer()
     @State private var draggingId: UUID?
+    @State private var dragEndWatcher = DragEndWatcher()
+    /// The header's date. State rather than read on every render, so it can
+    /// be refreshed when the day changes - otherwise a card left open
+    /// overnight kept showing yesterday until something happened to redraw it.
+    @State private var today = Date.now
     /// While a task's done state is mid-transition, holds it in its
     /// pre-toggle section (true = keep showing as pending, false = keep
     /// showing as done) for Layout.doneMoveDelay before letting it move to
@@ -25,7 +30,7 @@ struct ContentView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        let date = Date.now
+        let date = today
         let dayNumber = Calendar.current.component(.day, from: date)
         // Computed once here and threaded through. It filters and sorts, and
         // as a plain computed property it used to be re-evaluated ~5x per
@@ -141,6 +146,16 @@ struct ContentView: View {
         .onDisappear {
             headerQuickAddTooltipTimer.cancel()
             editPasteImageMonitor.stop()
+            dragEndWatcher.stop()
+        }
+        // Day changes are posted on wake from sleep too; activation is a
+        // backstop in case one is ever missed.
+        .onReceive(
+            NotificationCenter.default.publisher(for: .NSCalendarDayChanged)
+                .merge(with: NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification))
+                .receive(on: RunLoop.main)
+        ) { _ in
+            refreshToday()
         }
     }
 
@@ -329,6 +344,14 @@ struct ContentView: View {
             .onDrag {
                 beginDragCursor()
                 draggingId = task.id
+                // Clears the drag state however the drag ends - including
+                // outside the card or with Esc, which no drop delegate sees.
+                let taskID = task.id
+                dragEndWatcher.start {
+                    if draggingId == taskID {
+                        draggingId = nil
+                    }
+                }
                 return NSItemProvider(object: task.id.uuidString as NSString)
             }
             .onDrop(of: [.text, .image], delegate: ReorderDropDelegate(target: task, store: store, draggingId: $draggingId))
@@ -351,6 +374,12 @@ struct ContentView: View {
                 _ = sectionOverrides.removeValue(forKey: taskID)
             }
         }
+    }
+
+    private func refreshToday() {
+        let now = Date.now
+        guard Calendar.current.isDate(now, inSameDayAs: today) == false else { return }
+        today = now
     }
 
     private func activateWindow() {

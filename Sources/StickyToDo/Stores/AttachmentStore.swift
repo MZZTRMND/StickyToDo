@@ -20,8 +20,21 @@ final class AttachmentStore {
     static var defaultDirectory: URL {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
-        return appSupport.appendingPathComponent("StickyToDo/Attachments", isDirectory: true)
+        return appSupport
+            .appendingPathComponent(folderName(forBundleID: Bundle.main.bundleIdentifier), isDirectory: true)
+            .appendingPathComponent("Attachments", isDirectory: true)
     }
+
+    /// The app isn't sandboxed, so Application Support is shared by every
+    /// build. The real app keeps its original "StickyToDo" folder; any other
+    /// bundle id (the test build, `swift run`, tests) gets a folder of its
+    /// own, so it can never touch the real app's images.
+    static func folderName(forBundleID bundleID: String?) -> String {
+        if bundleID == realAppBundleID { return "StickyToDo" }
+        return "StickyToDo (\(bundleID ?? "unbundled"))"
+    }
+
+    static let realAppBundleID = "com.sticky.todo"
 
     func url(for id: UUID) -> URL {
         directory.appendingPathComponent("\(id.uuidString).png")

@@ -129,10 +129,13 @@ final class TaskStore: ObservableObject {
 
     func setAttachment(_ image: NSImage, for task: TaskItem) {
         guard let index = indexOfTask(task) else { return }
+        // Save the new image before deleting the old one: if saving fails,
+        // the task keeps its old, still-existing attachment instead of
+        // pointing at a deleted file.
+        guard let newID = attachmentStore.save(image) else { return }
         if let oldID = tasks[index].attachmentID {
             attachmentStore.delete(id: oldID)
         }
-        guard let newID = attachmentStore.save(image) else { return }
         tasks[index].attachmentID = newID
     }
 
@@ -158,17 +161,20 @@ final class TaskStore: ObservableObject {
     /// completed tasks visible. Returns the number of tasks removed.
     @discardableResult
     func purgeStaleCompletedTasks(referenceDate: Date = Date(), calendar: Calendar = .current) -> Int {
-        let staleIDs = tasks
-            .filter { task in
-                guard task.isDone else { return false }
-                guard let doneAt = task.doneAt else { return true }
-                return calendar.isDate(doneAt, inSameDayAs: referenceDate) == false
-            }
-            .map(\.id)
-        guard staleIDs.isEmpty == false else { return 0 }
-        let staleIDSet = Set(staleIDs)
+        let staleTasks = tasks.filter { task in
+            guard task.isDone else { return false }
+            guard let doneAt = task.doneAt else { return true }
+            return calendar.isDate(doneAt, inSameDayAs: referenceDate) == false
+        }
+        guard staleTasks.isEmpty == false else { return 0 }
+        // Same as delete(_:): a cleared task takes its image file with it,
+        // rather than leaving it behind in the attachments folder.
+        for attachmentID in staleTasks.compactMap(\.attachmentID) {
+            attachmentStore.delete(id: attachmentID)
+        }
+        let staleIDSet = Set(staleTasks.map(\.id))
         tasks.removeAll { staleIDSet.contains($0.id) }
-        return staleIDs.count
+        return staleTasks.count
     }
 
     private func load() {
