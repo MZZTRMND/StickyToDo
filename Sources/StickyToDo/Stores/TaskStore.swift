@@ -28,7 +28,7 @@ final class TaskStore: ObservableObject {
     private var lastSavedTaskData: Data?
     private var lastSavedCategoryData: Data?
 
-    init(userDefaults: UserDefaults = .standard, attachmentStore: AttachmentStore = AttachmentStore()) {
+    init(userDefaults: UserDefaults = .standard, attachmentStore: AttachmentStore = AttachmentStore(savesInBackground: true)) {
         self.userDefaults = userDefaults
         self.attachmentStore = attachmentStore
         load()
@@ -39,10 +39,21 @@ final class TaskStore: ObservableObject {
     func addTask(title: String, categoryID: UUID? = nil, attachmentImage: NSImage? = nil) -> TaskItem? {
         guard let trimmed = normalizedTitle(from: title) else { return nil }
         var newTask = TaskItem(title: trimmed, categoryID: categoryID)
-        if let attachmentImage, let id = attachmentStore.save(attachmentImage) {
-            newTask.attachmentID = id
+        // The task appears right away; its image is attached once saved
+        // (immediately when the attachment store saves synchronously).
+        var isInserted = false
+        if let attachmentImage {
+            let taskID = newTask.id
+            attachmentStore.save(attachmentImage) { [weak self] id in
+                if isInserted {
+                    self?.attachSavedImage(id, toTaskID: taskID)
+                } else {
+                    newTask.attachmentID = id
+                }
+            }
         }
         tasks.insert(newTask, at: 0)
+        isInserted = true
         return newTask
     }
 
@@ -127,12 +138,24 @@ final class TaskStore: ObservableObject {
         tasks.insert(item, at: adjustedIndex)
     }
 
+    /// Saves in the background (a big screenshot takes ~90 ms to encode),
+    /// then swaps it in. The old image is only deleted once the new one is
+    /// saved, so a failed save leaves the task as it was.
     func setAttachment(_ image: NSImage, for task: TaskItem) {
-        guard let index = indexOfTask(task) else { return }
-        // Save the new image before deleting the old one: if saving fails,
-        // the task keeps its old, still-existing attachment instead of
-        // pointing at a deleted file.
-        guard let newID = attachmentStore.save(image) else { return }
+        guard indexOfTask(task) != nil else { return }
+        let taskID = task.id
+        attachmentStore.save(image) { [weak self] id in
+            self?.attachSavedImage(id, toTaskID: taskID)
+        }
+    }
+
+    private func attachSavedImage(_ newID: UUID?, toTaskID taskID: UUID) {
+        guard let newID else { return }
+        guard let index = tasks.firstIndex(where: { $0.id == taskID }) else {
+            // The task was deleted while its image was being saved.
+            attachmentStore.delete(id: newID)
+            return
+        }
         if let oldID = tasks[index].attachmentID {
             attachmentStore.delete(id: oldID)
         }
@@ -150,6 +173,11 @@ final class TaskStore: ObservableObject {
     func attachmentImage(for task: TaskItem) -> NSImage? {
         guard let id = task.attachmentID else { return nil }
         return attachmentStore.loadImage(for: id)
+    }
+
+    /// The small hover-preview image; `completion` runs on the main thread.
+    func loadAttachmentThumbnail(for attachmentID: UUID, completion: @escaping (NSImage?) -> Void) {
+        attachmentStore.loadThumbnail(for: attachmentID, completion: completion)
     }
 
     func openAttachment(for task: TaskItem) {

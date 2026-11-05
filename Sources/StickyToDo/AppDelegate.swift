@@ -28,6 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var customizeWindow: NSWindow?
     private var aboutWindow: NSWindow?
     private var quickAddWindow: NSPanel?
+    private let quickAddSession = QuickAddSession()
     private var hostingView: NSHostingView<AnyView>?
     private var cancellables: Set<AnyCancellable> = []
 
@@ -43,6 +44,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         bindSettingsObservers()
         applyLaunchAtLoginPreference(settings.launchAtLogin)
         createWindow()
+        // Built now, while nothing is waiting on it, so the first ⌥⌘N is as
+        // quick as every later one.
+        quickAddWindow = makeQuickAddWindow()
+        quickAddWindow?.contentView?.layoutSubtreeIfNeeded()
         hotKeyManager.onTriggered = { [weak self] in self?.presentOrFocusQuickAddOverlay() }
         if hotKeyManager.register() == false {
             presentErrorAlert(
@@ -565,7 +570,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func presentOrFocusQuickAddOverlay() {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            if let quickAddWindow = self.quickAddWindow {
+            if self.quickAddSession.isVisible, let quickAddWindow = self.quickAddWindow {
                 quickAddWindow.makeKeyAndOrderFront(nil)
                 NSApp.activate(ignoringOtherApps: true)
                 NotificationCenter.default.post(name: .stickyToDoQuickAddFocusRequested, object: nil)
@@ -575,21 +580,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func presentQuickAddOverlay() {
-        guard let screen = activeScreenForOverlay() else { return }
-
+    /// The quick-add overlay: a transparent, screen-sized panel. Built once
+    /// and then only shown and hidden - building it (window plus SwiftUI
+    /// view tree) on every ⌥⌘N took 25-60 ms before anything appeared.
+    private func makeQuickAddWindow() -> NSPanel {
+        let frame = activeScreenForOverlay()?.frame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         let overlay = KeyablePanel(
-            contentRect: screen.frame,
+            contentRect: frame,
             styleMask: [.borderless, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
-        overlay.setFrame(screen.frame, display: false)
         overlay.isOpaque = false
         overlay.backgroundColor = .clear
         overlay.hasShadow = false
         overlay.hidesOnDeactivate = false
         overlay.isMovableByWindowBackground = false
+        overlay.isReleasedWhenClosed = false
         overlay.level = .statusBar
         overlay.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
 
@@ -603,16 +610,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.closeQuickAddOverlay()
             }
         )
-        .environmentObject(store)
-        .environmentObject(categoryUI)
-        .preferredColorScheme(settings.preferredColorScheme)
-
-        let host = NSHostingView(rootView: AnyView(content))
+        let host = NSHostingView(rootView: AnyView(
+            QuickAddRootView(content: content)
+                .environmentObject(settings)
+                .environmentObject(store)
+                .environmentObject(categoryUI)
+                .environmentObject(quickAddSession)
+        ))
         host.wantsLayer = true
         host.layer?.backgroundColor = NSColor.clear.cgColor
         overlay.contentView = host
+        return overlay
+    }
 
+    private func presentQuickAddOverlay() {
+        guard let screen = activeScreenForOverlay() else { return }
+        let overlay = quickAddWindow ?? makeQuickAddWindow()
         quickAddWindow = overlay
+        // The screen with the pointer, which may not be the last one used.
+        overlay.setFrame(screen.frame, display: false)
+        quickAddSession.show()
         overlay.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         NotificationCenter.default.post(name: .stickyToDoQuickAddFocusRequested, object: nil)
@@ -620,7 +637,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func closeQuickAddOverlay() {
         quickAddWindow?.orderOut(nil)
-        quickAddWindow = nil
+        quickAddSession.hide()
     }
 
     private func activeScreenForOverlay() -> NSScreen? {
@@ -637,6 +654,33 @@ extension Notification.Name {
     static let stickyToDoQuickAddFocusRequested = Notification.Name("StickyToDo.QuickAddFocusRequested")
     static let stickyToDoPresentQuickAddRequested = Notification.Name("StickyToDo.PresentQuickAddRequested")
     static let stickyToDoShowCustomizeRequested = Notification.Name("StickyToDo.ShowCustomizeRequested")
+}
+
+/// Tells the long-lived quick-add view when it's shown and hidden, so it
+/// can start fresh each time without being rebuilt.
+final class QuickAddSession: ObservableObject {
+    @Published private(set) var showCount = 0
+    @Published private(set) var isVisible = false
+
+    func show() {
+        isVisible = true
+        showCount += 1
+    }
+
+    func hide() {
+        isVisible = false
+    }
+}
+
+/// Applies the Appearance setting live: the quick-add view now outlives
+/// changes to it.
+private struct QuickAddRootView: View {
+    let content: QuickAddOverlayView
+    @EnvironmentObject private var settings: AppSettings
+
+    var body: some View {
+        content.preferredColorScheme(settings.preferredColorScheme)
+    }
 }
 
 private struct RootContentView: View {

@@ -333,4 +333,19 @@ final class TaskStoreTests: XCTestCase {
         XCTAssertEqual(store.tasks[0].attachmentID, oldID)
         XCTAssertTrue(FileManager.default.fileExists(atPath: attachmentStore.url(for: oldID).path))
     }
+    func testImageFinishingAfterItsTaskWasDeletedIsCleanedUp() {
+        let backgroundAttachments = AttachmentStore(directory: attachmentDirectory, savesInBackground: true)
+        let store = TaskStore(userDefaults: defaults, attachmentStore: backgroundAttachments)
+        store.addTask(title: "Task")
+        store.setAttachment(makeTestImage(), for: store.tasks[0])
+        store.delete(store.tasks[0])
+
+        // Let the background save finish and report back.
+        let drained = expectation(description: "drained")
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { DispatchQueue.main.async { drained.fulfill() } }
+        wait(for: [drained], timeout: 5)
+
+        let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: attachmentDirectory.path)) ?? []
+        XCTAssertEqual(leftovers, [])
+    }
 }

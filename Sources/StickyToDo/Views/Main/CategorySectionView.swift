@@ -9,6 +9,9 @@ struct CategorySectionView: View {
     @Binding var draggingId: UUID?
     let activateWindow: () -> Void
     @FocusState private var focusedCategoryID: UUID?
+    /// Local, not in CategoryUIState: the whole card observes that object,
+    /// so a hover flag there redrew the card on every pass over the tabs.
+    @State private var isHovered = false
 
     var body: some View {
         HStack(spacing: Layout.categoryChipSpacing) {
@@ -33,7 +36,7 @@ struct CategorySectionView: View {
                 categoryChipView(for: category)
             }
 
-            if categoryUI.isCategorySectionHovered {
+            if isHovered {
                 addCategoryChip
                     .transition(.opacity.combined(with: .scale(scale: 0.95)))
             }
@@ -42,7 +45,7 @@ struct CategorySectionView: View {
         .padding(.top, Layout.inputToCategorySpacing)
         .frame(maxWidth: .infinity, alignment: .leading)
         .onHover { hovering in
-            categoryUI.isCategorySectionHovered = hovering
+            isHovered = hovering
         }
         // Reports this row's own real rendered height (including its top
         // spacing) so ContentView can size the window from the actual

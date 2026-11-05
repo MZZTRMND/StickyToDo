@@ -5,7 +5,6 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @EnvironmentObject private var store: TaskStore
     @EnvironmentObject private var settings: AppSettings
-    @State private var isHeaderQuickAddHovered = false
     @State private var isHeaderQuickAddTooltipVisible = false
     @State private var headerQuickAddTooltipTimer = HoverTooltipTimer()
     @State private var draggingId: UUID?
@@ -240,31 +239,15 @@ struct ContentView: View {
                     pinnedIndicator
                 }
 
-                Button(action: {
-                    headerQuickAddTooltipTimer.cancel()
-                    isHeaderQuickAddTooltipVisible = false
-                    presentQuickAddOverlay()
-                }) {
-                    Image(systemName: "plus")
-                        .font(.system(size: Layout.addIconSize, weight: .medium))
-                }
-                .buttonStyle(.glass)
-                .buttonBorderShape(.circle)
-                .controlSize(.extraLarge)
-                .accessibilityLabel("Add task")
-                .scaleEffect(isHeaderQuickAddHovered ? 1.1 : 1.0)
-                .animation(
-                    .spring(
-                        response: Layout.addButtonSpringResponse,
-                        dampingFraction: Layout.addButtonSpringDamping
-                    ),
-                    value: isHeaderQuickAddHovered
+                HeaderAddButton(
+                    onPress: {
+                        headerQuickAddTooltipTimer.cancel()
+                        hideHeaderQuickAddTooltip()
+                        presentQuickAddOverlay()
+                    },
+                    onHoverChanged: handleHeaderQuickAddHoverChanged
                 )
                 .padding(.top, -25)
-                .onHover { hovering in
-                    isHeaderQuickAddHovered = hovering
-                    handleHeaderQuickAddHoverChanged(hovering)
-                }
             }
             .frame(height: Layout.headerHeight, alignment: .top)
             .padding(.trailing, Layout.headerTrailingPadding)
@@ -282,10 +265,7 @@ struct ContentView: View {
     }
 
     private func list(_ tasks: [TaskItem]) -> some View {
-        // Once per render rather than once per row's menu: it's a call to
-        // the pasteboard server.
-        let canPasteImage = hasPasteboardImage
-        return ScrollView {
+        ScrollView {
             // A plain VStack, not a LazyVStack: a lazy stack throws rows away
             // as they scroll out and rebuilds them (menu button, drag source,
             // hover tracking) as they scroll back in, which is what made
@@ -293,9 +273,9 @@ struct ContentView: View {
             VStack(spacing: settings.cardStyle.density.rowSpacing) {
                 ForEach(tasks) { task in
                     // Redraws a row only when something it shows changed, so
-                    // checking off one task doesn't rebuild every row's menus.
-                    EquatableRow(key: rowKey(for: task, canPasteImage: canPasteImage)) {
-                        taskRowView(for: task, canPasteImage: canPasteImage)
+                    // checking off one task doesn't rebuild every row.
+                    EquatableRow(key: rowKey(for: task)) {
+                        taskRowView(for: task)
                     }
                     .equatable()
                 }
@@ -323,22 +303,21 @@ struct ContentView: View {
         }
     }
 
-    /// Everything a row and its menus show. Must list every input of
-    /// taskRowView/rowContextMenu that can change, or the row goes stale.
-    private func rowKey(for task: TaskItem, canPasteImage: Bool) -> TaskRowKey {
+    /// Everything a row shows. Must list every input of taskRowView that can
+    /// change, or the row goes stale. (Its menu is built when opened, from
+    /// the store, so it needs nothing here.)
+    private func rowKey(for task: TaskItem) -> TaskRowKey {
         TaskRowKey(
             task: task,
             showCheckboxes: settings.showCheckboxes,
             categoryBadge: categoryBadge(for: task),
             isDragging: draggingId == task.id,
-            isEditRequested: editingTaskId == task.id,
-            categories: store.categories,
-            canPasteImage: canPasteImage
+            isEditRequested: editingTaskId == task.id
         )
     }
 
     @ViewBuilder
-    private func listItem(for task: TaskItem, canPasteImage: Bool) -> some View {
+    private func listItem(for task: TaskItem) -> some View {
         TaskRow(
             task: task,
             showCheckboxes: settings.showCheckboxes,
@@ -347,7 +326,7 @@ struct ContentView: View {
             onRename: { store.updateTitle(for: task, title: $0) },
             categoryBadge: categoryBadge(for: task),
             isDragging: draggingId == task.id,
-            attachmentImage: store.attachmentImage(for: task),
+            loadAttachmentPreview: { id, completion in store.loadAttachmentThumbnail(for: id, completion: completion) },
             onOpenAttachment: { store.openAttachment(for: task) },
             onEditingChanged: { isEditing in
                 if isEditing {
@@ -356,14 +335,14 @@ struct ContentView: View {
                     currentlyEditingTaskID = nil
                 }
             },
-            rowMenu: { rowContextMenu(for: task, canPasteImage: canPasteImage) },
+            makeMenu: { makeTaskMenu(taskID: task.id) },
             editTrigger: taskEditBinding(for: task.id)
         )
     }
 
     @ViewBuilder
-    private func taskRowView(for task: TaskItem, canPasteImage: Bool) -> some View {
-        listItem(for: task, canPasteImage: canPasteImage)
+    private func taskRowView(for task: TaskItem) -> some View {
+        listItem(for: task)
             .id(task.id)
             .opacity(draggingId == task.id ? 0.4 : 1.0)
             .onDrag {
@@ -380,9 +359,6 @@ struct ContentView: View {
                 return NSItemProvider(object: task.id.uuidString as NSString)
             }
             .onDrop(of: [.text, .image], delegate: ReorderDropDelegate(target: task, store: store, draggingId: $draggingId))
-            .contextMenu {
-                rowContextMenu(for: task, canPasteImage: canPasteImage)
-            }
     }
 
     private func toggleDoneWithDelay(taskID: UUID) {
@@ -421,17 +397,25 @@ struct ContentView: View {
         headerQuickAddTooltipTimer.cancel()
 
         guard hovering else {
-            withAnimation(.easeOut(duration: 0.12)) {
-                isHeaderQuickAddTooltipVisible = false
-            }
+            hideHeaderQuickAddTooltip()
             return
         }
 
+        // Cancelled above if the pointer leaves first, so this only runs
+        // while still hovering.
         headerQuickAddTooltipTimer.scheduleShow {
-            guard isHeaderQuickAddHovered else { return }
             withAnimation(.easeInOut(duration: 0.15)) {
                 isHeaderQuickAddTooltipVisible = true
             }
+        }
+    }
+
+    /// Writes only when it's actually showing, so moving the pointer over
+    /// and off the "+" doesn't redraw the whole card.
+    private func hideHeaderQuickAddTooltip() {
+        guard isHeaderQuickAddTooltipVisible else { return }
+        withAnimation(.easeOut(duration: 0.12)) {
+            isHeaderQuickAddTooltipVisible = false
         }
     }
 
@@ -447,101 +431,39 @@ struct ContentView: View {
         isDragCursorActive = false
     }
 
-    @ViewBuilder
-    private func rowContextMenu(for task: TaskItem, canPasteImage: Bool) -> some View {
-        Button {
-            toggleDoneWithDelay(taskID: task.id)
-        } label: {
-            Label(task.isDone ? "Unmark as done" : "Mark as done", systemImage: "checkmark.circle")
-        }
-
-        Button {
-            store.setImportant(task.isImportant == false, for: task)
-        } label: {
-            Label(task.isImportant ? "Unmark as important" : "Mark as important", systemImage: "exclamationmark.circle")
-        }
-        Divider()
-
-        Menu {
-            Button {
-                store.assignCategory(nil, to: task)
-            } label: {
-                if task.categoryID == nil {
-                    Label("No category", systemImage: "checkmark")
-                } else {
-                    Text("No category")
-                }
-            }
-
-            if store.categories.isEmpty == false {
-                Divider()
-            }
-
-            if store.categories.isEmpty {
-                Button {
-                    categoryUI.beginCategoryCreation(for: task.id)
+    /// Built when the menu opens, from the store's current state - so it's
+    /// never stale, even for a row that hasn't redrawn in a while.
+    private func makeTaskMenu(taskID: UUID) -> NSMenu {
+        guard let task = store.tasks.first(where: { $0.id == taskID }) else { return NSMenu() }
+        return TaskMenuBuilder.makeMenu(
+            for: task,
+            categories: store.categories,
+            canPasteImage: hasPasteboardImage,
+            actions: TaskMenuActions(
+                toggleDone: { toggleDoneWithDelay(taskID: taskID) },
+                setImportant: { store.setImportant($0, for: task) },
+                assignCategory: { store.assignCategory($0, toTaskID: taskID) },
+                createCategory: {
+                    categoryUI.beginCategoryCreation(for: taskID)
                     activateWindow()
-                } label: {
-                    Label("Create new category", systemImage: "plus")
-                }
-            } else {
-                ForEach(store.categories) { category in
-                    Button {
-                        store.assignCategory(category.id, to: task)
-                    } label: {
-                        if task.categoryID == category.id {
-                            Label(category.name, systemImage: "checkmark")
-                        } else {
-                            Text(category.name)
-                        }
-                    }
-                }
-                Divider()
-                Button {
-                    categoryUI.beginCategoryCreation(for: task.id)
+                },
+                pasteImage: {
+                    guard let image = pasteboardImage else { return }
+                    store.setAttachment(image, for: task)
+                },
+                removeAttachment: { store.removeAttachment(for: task) },
+                edit: {
+                    editingTaskId = taskID
                     activateWindow()
-                } label: {
-                    Label("Create new category", systemImage: "plus")
-                }
-            }
-        } label: {
-            Label("Move to category", systemImage: "tag")
-        }
-
-        if canPasteImage {
-            Button {
-                guard let image = pasteboardImage else { return }
-                store.setAttachment(image, for: task)
-            } label: {
-                Label("Paste Image", systemImage: "photo")
-            }
-        }
-        if task.attachmentID != nil {
-            Button {
-                store.removeAttachment(for: task)
-            } label: {
-                Label("Remove Attachment", systemImage: "paperclip")
-            }
-        }
-        Divider()
-
-        Button {
-            editingTaskId = task.id
-            activateWindow()
-        } label: {
-            Label("Edit task", systemImage: "pencil")
-        }
-        Button {
-            store.delete(task)
-        } label: {
-            Label("Delete task", systemImage: "trash")
-        }
+                },
+                delete: { store.delete(task) }
+            )
+        )
     }
 
-    /// Cheap check for the menu item's visibility. readObjects() actually
-    /// decodes the image, which is far too expensive to run while building
-    /// menu content on every render; canReadObject only inspects the
-    /// pasteboard's declared types. The decode happens in the action instead.
+    /// Cheap check for the menu item's visibility: canReadObject only
+    /// inspects the pasteboard's declared types. The decode happens in the
+    /// action instead.
     private var hasPasteboardImage: Bool {
         NSPasteboard.general.canReadObject(forClasses: [NSImage.self], options: nil)
     }
@@ -752,9 +674,6 @@ private struct TaskRowKey: Equatable {
     let categoryBadge: TaskCategoryBadge?
     let isDragging: Bool
     let isEditRequested: Bool
-    /// The row's menu lists every category.
-    let categories: [TaskCategory]
-    let canPasteImage: Bool
 }
 
 /// Rebuilds its content only when `key` changes. The row's action closures
@@ -767,4 +686,32 @@ private struct EquatableRow<Key: Equatable, Content: View>: View, Equatable {
     var body: some View { content() }
 
     static func == (lhs: Self, rhs: Self) -> Bool { lhs.key == rhs.key }
+}
+
+/// The header's "+" button. Its hover grow-effect is its own state, so
+/// hovering it redraws just the button rather than the whole card.
+private struct HeaderAddButton: View {
+    let onPress: () -> Void
+    let onHoverChanged: (Bool) -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: onPress) {
+            Image(systemName: "plus")
+                .font(.system(size: Layout.addIconSize, weight: .medium))
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        .controlSize(.extraLarge)
+        .accessibilityLabel("Add task")
+        .scaleEffect(isHovered ? 1.1 : 1.0)
+        .animation(
+            .spring(response: Layout.addButtonSpringResponse, dampingFraction: Layout.addButtonSpringDamping),
+            value: isHovered
+        )
+        .onHover { hovering in
+            isHovered = hovering
+            onHoverChanged(hovering)
+        }
+    }
 }

@@ -14,7 +14,6 @@ final class CategoryUIState: ObservableObject {
     @Published var categoryShakeTrigger: CGFloat = 0
     @Published var isAllCategoryDropTargeted = false
     @Published var categoryDropTargetedIDs: Set<UUID> = []
-    @Published var isCategorySectionHovered = false
 
     func clearSelectionIfMissing(from categories: [TaskCategory]) {
         if let selectedCategoryID, categories.contains(where: { $0.id == selectedCategoryID }) == false {

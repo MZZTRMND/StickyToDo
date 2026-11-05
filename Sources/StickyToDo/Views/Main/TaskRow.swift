@@ -1,7 +1,7 @@
 import SwiftUI
 import AppKit
 
-struct TaskRow<RowMenu: View>: View {
+struct TaskRow: View {
     let task: TaskItem
     let showCheckboxes: Bool
     let onToggle: () -> Void
@@ -9,10 +9,12 @@ struct TaskRow<RowMenu: View>: View {
     let onRename: (String) -> Void
     let categoryBadge: TaskCategoryBadge?
     let isDragging: Bool
-    let attachmentImage: NSImage?
+    /// Loads the attachment's small preview image (see AttachmentStore).
+    let loadAttachmentPreview: (UUID, @escaping (NSImage?) -> Void) -> Void
     let onOpenAttachment: () -> Void
     let onEditingChanged: (Bool) -> Void
-    @ViewBuilder let rowMenu: () -> RowMenu
+    /// Builds the "…" / right-click menu when it's opened (see TaskMenuBuilder).
+    let makeMenu: () -> NSMenu
     @Binding var editTrigger: Bool
     @State private var isCircleHovered = false
     @State private var isRowHovered = false
@@ -20,6 +22,8 @@ struct TaskRow<RowMenu: View>: View {
     @State private var draftTitle = ""
     @State private var isAttachmentHovered = false
     @State private var showAttachmentPreview = false
+    /// Loaded when the pointer first reaches "Image", not when the row is built.
+    @State private var previewImage: NSImage?
     @State private var attachmentPreviewTimer = HoverTooltipTimer()
     @FocusState private var isTitleFocused: Bool
     @EnvironmentObject private var settings: AppSettings
@@ -28,31 +32,7 @@ struct TaskRow<RowMenu: View>: View {
     var body: some View {
         HStack(alignment: .top, spacing: 0) {
             if showCheckboxes {
-                Button(action: onToggle) {
-                    Circle()
-                        .fill(task.isDone ? checkedFill : .clear)
-                        .overlay(
-                            Group {
-                                if task.isDone == false {
-                                    Circle()
-                                        .stroke(circleStrokeColor, lineWidth: 2)
-                                }
-                            }
-                        )
-                        .frame(width: 20, height: 20)
-                        .overlay(
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(task.isDone ? checkmarkColor : .clear)
-                        )
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(task.isDone ? "Mark as not done" : "Mark as done")
-                .padding(.top, 2)
-                .animation(.easeInOut(duration: 0.18), value: isCircleHovered)
-                .onHover { hovering in
-                    isCircleHovered = hovering
-                }
+                checkbox
             }
 
             VStack(alignment: .leading, spacing: 0) {
@@ -76,7 +56,7 @@ struct TaskRow<RowMenu: View>: View {
                             startEdit()
                         }
 
-                    if attachmentImage != nil || categoryBadge != nil {
+                    if task.attachmentID != nil || categoryBadge != nil {
                         metaLine
                             .padding(.top, 4)
                     }
@@ -100,12 +80,6 @@ struct TaskRow<RowMenu: View>: View {
                     // Flag and "..." share one slot: the flag shows at rest,
                     // and hovering crossfades the menu in over it.
                     //
-                    // The Menu stays in the tree and is revealed with opacity
-                    // rather than being created on hover: while you scroll,
-                    // rows slide under a stationary cursor, so hover-gating
-                    // meant repeatedly building and tearing down a real
-                    // NSPopUpButton mid-gesture. Created once when the row
-                    // mounts is much cheaper than that.
                     ZStack {
                         if task.isImportant {
                             Image(systemName: "flag.fill")
@@ -114,31 +88,22 @@ struct TaskRow<RowMenu: View>: View {
                                 .opacity(showEllipsisMenu ? 0 : 1)
                         }
 
-                        Menu {
-                            rowMenu()
-                        } label: {
-                            // A label that's *only* an Image gets handed off to
-                            // the native pull-down button's image slot, which
-                            // renders it small and black regardless of
-                            // font/foregroundStyle - wrapping it forces SwiftUI
-                            // to render the label itself, fixing the color.
-                            ZStack {
-                                Image(systemName: "ellipsis")
-                                    .foregroundStyle(Theme.secondaryText)
-                                    .accessibilityHidden(true)
-                            }
+                        // A plain icon; the menu is built when it's clicked.
+                        Image(systemName: "ellipsis")
+                            .foregroundStyle(Theme.secondaryText)
                             .frame(width: 32, height: 32)
-                        }
-                        .menuStyle(.borderlessButton)
-                        .menuIndicator(.hidden)
-                        .accessibilityLabel("More actions")
-                        .opacity(showEllipsisMenu ? 1 : 0)
-                        .allowsHitTesting(showEllipsisMenu)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                makeMenu().popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+                            }
+                            .accessibilityElement()
+                            .accessibilityLabel("More actions")
+                            .accessibilityAddTraits(.isButton)
+                            .accessibilityAction { makeMenu().popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil) }
+                            .opacity(showEllipsisMenu ? 1 : 0)
+                            .allowsHitTesting(showEllipsisMenu)
                     }
-                    // Reserves the slot and replaces the Menu's old
-                    // .fixedSize(), which made SwiftUI query the popup's
-                    // intrinsic size while the popup's own update invalidated
-                    // that same intrinsic size.
+                    // Reserves the slot, so the title wraps the same with or without the flag.
                     .frame(width: 32, height: 32)
                     .animation(.easeInOut(duration: 0.12), value: isRowHovered)
                 }
@@ -168,8 +133,19 @@ struct TaskRow<RowMenu: View>: View {
             guard isEditing == false else { return }
             onToggle()
         }
+        // Right-click menu. Left off while editing, so the text field keeps
+        // its own Cut/Copy/Paste menu.
+        .overlay {
+            if isEditing == false {
+                RightClickMenuArea(makeMenu: makeMenu)
+            }
+        }
         .onHover { hovering in
             isRowHovered = hovering
+        }
+        .onChange(of: task.attachmentID) {
+            previewImage = nil
+            showAttachmentPreview = false
         }
         .onChange(of: task.isDone) {
             isRowHovered = false
@@ -191,6 +167,36 @@ struct TaskRow<RowMenu: View>: View {
         .onDisappear {
             attachmentPreviewTimer.cancel()
         }
+    }
+
+    /// A drawn circle, not a Button: clicking anywhere on the row already
+    /// checks the task off (see .onTapGesture in body), and a button per row
+    /// made every row ~4 ms more expensive to build.
+    private var checkbox: some View {
+        let circle = Circle()
+            .fill(task.isDone ? checkedFill : .clear)
+            .overlay {
+                if task.isDone == false {
+                    Circle().stroke(circleStrokeColor, lineWidth: 2)
+                }
+            }
+            .frame(width: 20, height: 20)
+            .overlay {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(task.isDone ? checkmarkColor : .clear)
+            }
+        return circle
+            .contentShape(Circle())
+            .accessibilityElement()
+            .accessibilityLabel(task.isDone ? "Mark as not done" : "Mark as done")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { onToggle() }
+            .padding(.top, 2)
+            .animation(.easeInOut(duration: 0.18), value: isCircleHovered)
+            .onHover { hovering in
+                isCircleHovered = hovering
+            }
     }
 
     /// A checked task's circle: the card style's accent, or the text color.
@@ -242,7 +248,7 @@ struct TaskRow<RowMenu: View>: View {
     @ViewBuilder
     private var metaLine: some View {
         HStack(spacing: 4) {
-            if let attachmentImage {
+            if task.attachmentID != nil {
                 HStack(spacing: 3) {
                     Image(systemName: "paperclip")
                         .font(.system(size: 12, weight: .regular))
@@ -264,8 +270,8 @@ struct TaskRow<RowMenu: View>: View {
                     onOpenAttachment()
                 }
                 .overlay(alignment: .topLeading) {
-                    if showAttachmentPreview {
-                        Image(nsImage: attachmentImage)
+                    if showAttachmentPreview, let previewImage {
+                        Image(nsImage: previewImage)
                             .resizable()
                             .aspectRatio(contentMode: .fit)
                             .frame(width: 120, height: 120)
@@ -295,6 +301,13 @@ struct TaskRow<RowMenu: View>: View {
 
     private func handleAttachmentHoverChanged(_ hovering: Bool) {
         attachmentPreviewTimer.cancel()
+        if hovering, previewImage == nil, let attachmentID = task.attachmentID {
+            // Has the hover delay (1 s) to arrive, so it's normally ready in time.
+            loadAttachmentPreview(attachmentID) { image in
+                guard task.attachmentID == attachmentID else { return }
+                previewImage = image
+            }
+        }
         if hovering == false {
             withAnimation(.easeOut(duration: 0.12)) {
                 showAttachmentPreview = false
