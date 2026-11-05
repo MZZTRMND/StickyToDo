@@ -18,7 +18,7 @@ final class TaskMenuTests: XCTestCase {
                 createCategory: { self.log.append("create") },
                 pasteImage: { self.log.append("paste") },
                 copyImage: { self.log.append("copy image") },
-                removeAttachment: { self.log.append("remove") },
+                removeAllImages: { self.log.append("remove images") },
                 edit: { self.log.append("edit") },
                 delete: { self.log.append("delete") }
             )
@@ -43,12 +43,12 @@ final class TaskMenuTests: XCTestCase {
     }
 
     func testMenuReflectsTaskStateClipboardAndAttachment() {
-        let task = TaskItem(title: "Task", isDone: true, isImportant: true, attachmentID: UUID())
+        let task = TaskItem(title: "Task", isDone: true, isImportant: true, attachmentIDs: [UUID()])
         let menu = makeMenu(task: task, canPasteImage: true)
 
         XCTAssertEqual(titles(menu), [
             "Unmark as done", "Unmark as important", "-", "Move to category",
-            "Paste Image", "Copy Image", "Remove Attachment", "-", "Edit task", "Delete task",
+            "Paste Image", "Copy Image", "Remove Image", "-", "Edit task", "Delete task",
         ])
     }
 
@@ -75,5 +75,29 @@ final class TaskMenuTests: XCTestCase {
         run(menu.item(withTitle: "Delete task"))
 
         XCTAssertEqual(log, ["toggle", "important true", "category \(work.id.uuidString)", "delete"])
+    }
+
+    func testSeveralImagesOfferRemoveAllInsteadOfCopy() {
+        let task = TaskItem(title: "Task", attachmentIDs: [UUID(), UUID()])
+        let menu = makeMenu(task: task, canPasteImage: true)
+        XCTAssertEqual(titles(menu), [
+            "Mark as done", "Mark as important", "-", "Move to category",
+            "Paste Image", "Remove All Images", "-", "Edit task", "Delete task",
+        ])
+    }
+
+    func testAFullTaskHidesPasteImage() {
+        let task = TaskItem(title: "Task", attachmentIDs: (0..<TaskItem.maxAttachments).map { _ in UUID() })
+        XCTAssertFalse(titles(makeMenu(task: task, canPasteImage: true)).contains("Paste Image"))
+    }
+
+    func testImageMenu() {
+        var log: [String] = []
+        let menu = TaskMenuBuilder.makeImageMenu(open: { log.append("open") }, copy: { log.append("copy") }, remove: { log.append("remove") })
+        XCTAssertEqual(titles(menu), ["Quick Look", "Copy Image", "-", "Remove Image"])
+        for item in menu.items where item.isSeparatorItem == false {
+            _ = (item.target as AnyObject?)?.perform(item.action, with: item)
+        }
+        XCTAssertEqual(log, ["open", "copy", "remove"])
     }
 }

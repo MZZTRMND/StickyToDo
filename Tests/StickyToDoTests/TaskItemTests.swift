@@ -25,7 +25,7 @@ final class TaskItemTests: XCTestCase {
         XCTAssertFalse(task.isImportant)
         XCTAssertNil(task.categoryID)
         XCTAssertNil(task.doneAt)
-        XCTAssertNil(task.attachmentID)
+        XCTAssertEqual(task.attachmentIDs, [])
     }
 
     func testEncodeDecodeRoundTripPreservesAllFields() throws {
@@ -36,7 +36,7 @@ final class TaskItemTests: XCTestCase {
             categoryID: UUID(),
             doneAt: Date(timeIntervalSince1970: 1_700_000_100),
             createdAt: Date(timeIntervalSince1970: 1_700_000_000),
-            attachmentID: UUID()
+            attachmentIDs: [UUID(), UUID()]
         )
 
         let encoder = JSONEncoder()
@@ -54,5 +54,20 @@ final class TaskItemTests: XCTestCase {
         XCTAssertFalse(task.isImportant)
         XCTAssertNil(task.categoryID)
         XCTAssertNil(task.doneAt)
+    }
+
+    func testOlderSingleImageTasksLoadTheirImage() throws {
+        let imageID = UUID()
+        let json = #"{"id":"\#(UUID().uuidString)","title":"Old","attachmentID":"\#(imageID.uuidString)"}"#
+        let task = try JSONDecoder().decode(TaskItem.self, from: Data(json.utf8))
+        XCTAssertEqual(task.attachmentIDs, [imageID])
+    }
+
+    func testFirstImageIsAlsoSavedTheOldWayForOlderBuilds() throws {
+        let ids = [UUID(), UUID()]
+        let data = try JSONEncoder().encode(TaskItem(title: "New", attachmentIDs: ids))
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(object["attachmentID"] as? String, ids[0].uuidString)
+        XCTAssertEqual((object["attachmentIDs"] as? [String])?.count, 2)
     }
 }
