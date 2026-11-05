@@ -37,10 +37,14 @@ struct TaskRow: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 if isEditing {
-                    TextField("", text: $draftTitle)
+                    // Wraps over several lines like the title it replaces, so
+                    // a long task keeps its shape while editing instead of
+                    // collapsing into one scrolling line. Return still saves.
+                    TextField("", text: $draftTitle, axis: .vertical)
                         .textFieldStyle(.plain)
                         .font(.system(size: taskFontSize, weight: .medium))
                         .foregroundStyle(textPrimaryColor)
+                        .fixedSize(horizontal: false, vertical: true)
                         .focused($isTitleFocused)
                         .onSubmit(commitEdit)
                         .onExitCommand {
@@ -70,9 +74,10 @@ struct TaskRow: View {
                 if isEditing {
                     Button(action: commitEdit) {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(.system(size: 22, weight: .semibold))
                             .foregroundStyle(textPrimaryColor)
-                            .frame(width: 16, height: 16)
+                            .frame(width: 32, height: 32)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Finish editing")
