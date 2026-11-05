@@ -144,7 +144,7 @@ struct ContentView: View {
         .onAppear {
             editPasteImageMonitor.start { image in
                 guard let currentlyEditingTaskID, let task = store.tasks.first(where: { $0.id == currentlyEditingTaskID }) else { return }
-                store.setAttachment(image, for: task)
+                store.addAttachment(image, to: task)
             }
         }
         .onDisappear {
@@ -335,7 +335,7 @@ struct ContentView: View {
             attachmentPreview: AttachmentPreviewSource(
                 cached: { store.cachedAttachmentThumbnail(for: $0) },
                 load: { id, completion in store.loadAttachmentThumbnail(for: id, completion: completion) },
-                dragItem: { _ in store.attachmentDragItem(for: task) },
+                dragItem: { store.attachmentDragItem($0, of: task) },
                 onDragStarted: {
                     draggedAttachmentTaskID = task.id
                     let taskID = task.id
@@ -346,7 +346,7 @@ struct ContentView: View {
                     }
                 }
             ),
-            onOpenAttachment: { store.openAttachment(for: task) },
+            onOpenAttachment: { store.openAttachment($0, in: task) },
             isImageDropTarget: imageDropTargetID == task.id,
             onEditingChanged: { isEditing in
                 if isEditing {
@@ -356,6 +356,13 @@ struct ContentView: View {
                 }
             },
             makeMenu: { makeTaskMenu(taskID: task.id) },
+            makeImageMenu: { imageID in
+                TaskMenuBuilder.makeImageMenu(
+                    open: { store.openAttachment(imageID, in: task) },
+                    copy: { store.copyAttachment(imageID) },
+                    remove: { store.removeAttachment(imageID, from: task) }
+                )
+            },
             editTrigger: taskEditBinding(for: task.id)
         )
     }
@@ -475,10 +482,14 @@ struct ContentView: View {
                 },
                 pasteImage: {
                     guard let image = pasteboardImage else { return }
-                    store.setAttachment(image, for: task)
+                    store.addAttachment(image, to: task)
                 },
-                copyImage: { store.copyAttachment(for: task) },
-                removeAttachment: { store.removeAttachment(for: task) },
+                copyImage: {
+                    if let id = task.attachmentIDs.first {
+                        store.copyAttachment(id)
+                    }
+                },
+                removeAllImages: { store.removeAllAttachments(for: task) },
                 edit: {
                     editingTaskId = taskID
                     activateWindow()

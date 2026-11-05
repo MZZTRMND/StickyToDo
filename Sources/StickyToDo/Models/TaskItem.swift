@@ -8,7 +8,14 @@ struct TaskItem: Identifiable, Codable, Equatable {
     var categoryID: UUID?
     var doneAt: Date?
     let createdAt: Date
-    var attachmentID: UUID?
+    /// The task's images, oldest first (see AttachmentStore), at most
+    /// `maxAttachments`.
+    var attachmentIDs: [UUID]
+
+    static let maxAttachments = 4
+
+    var hasAttachments: Bool { attachmentIDs.isEmpty == false }
+    var canAddAttachment: Bool { attachmentIDs.count < Self.maxAttachments }
 
     init(
         id: UUID = UUID(),
@@ -18,7 +25,7 @@ struct TaskItem: Identifiable, Codable, Equatable {
         categoryID: UUID? = nil,
         doneAt: Date? = nil,
         createdAt: Date = Date(),
-        attachmentID: UUID? = nil
+        attachmentIDs: [UUID] = []
     ) {
         self.id = id
         self.title = title
@@ -27,7 +34,7 @@ struct TaskItem: Identifiable, Codable, Equatable {
         self.categoryID = categoryID
         self.doneAt = doneAt
         self.createdAt = createdAt
-        self.attachmentID = attachmentID
+        self.attachmentIDs = attachmentIDs
     }
 
     enum CodingKeys: String, CodingKey {
@@ -38,6 +45,9 @@ struct TaskItem: Identifiable, Codable, Equatable {
         case categoryID
         case doneAt
         case createdAt
+        case attachmentIDs
+        /// The single image of older versions. Still written (as the first
+        /// image), so an older build keeps showing at least that one.
         case attachmentID
     }
 
@@ -50,7 +60,13 @@ struct TaskItem: Identifiable, Codable, Equatable {
         categoryID = try container.decodeIfPresent(UUID.self, forKey: .categoryID)
         doneAt = try container.decodeIfPresent(Date.self, forKey: .doneAt)
         createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
-        attachmentID = try container.decodeIfPresent(UUID.self, forKey: .attachmentID)
+        if let ids = try container.decodeIfPresent([UUID].self, forKey: .attachmentIDs) {
+            attachmentIDs = ids
+        } else if let legacyID = try container.decodeIfPresent(UUID.self, forKey: .attachmentID) {
+            attachmentIDs = [legacyID]
+        } else {
+            attachmentIDs = []
+        }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -62,6 +78,9 @@ struct TaskItem: Identifiable, Codable, Equatable {
         try container.encodeIfPresent(categoryID, forKey: .categoryID)
         try container.encodeIfPresent(doneAt, forKey: .doneAt)
         try container.encode(createdAt, forKey: .createdAt)
-        try container.encodeIfPresent(attachmentID, forKey: .attachmentID)
+        if attachmentIDs.isEmpty == false {
+            try container.encode(attachmentIDs, forKey: .attachmentIDs)
+        }
+        try container.encodeIfPresent(attachmentIDs.first, forKey: .attachmentID)
     }
 }

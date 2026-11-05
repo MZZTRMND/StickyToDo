@@ -12,9 +12,20 @@ struct ReorderDropDelegate: DropDelegate {
     /// it's read live: rows don't rebuild when it changes.
     @Binding var draggedAttachmentTaskID: UUID?
 
+    /// Its own image dropped back on it, or no room for another.
+    private var refusesImages: Bool {
+        draggedAttachmentTaskID == target.id || currentTarget?.canAddAttachment == false
+    }
+
+    /// `target` as the store has it now - the row (and with it this
+    /// delegate) isn't rebuilt on every change.
+    private var currentTarget: TaskItem? {
+        store.tasks.first { $0.id == target.id }
+    }
+
     func validateDrop(info: DropInfo) -> Bool {
         if isImageDrop(info) {
-            return draggedAttachmentTaskID != target.id
+            return refusesImages == false
         }
         return info.hasItemsConforming(to: [UTType.text])
     }
@@ -31,7 +42,7 @@ struct ReorderDropDelegate: DropDelegate {
     }
 
     func dropEntered(info: DropInfo) {
-        if isImageDrop(info), draggedAttachmentTaskID != target.id {
+        if isImageDrop(info), refusesImages == false {
             imageDropTargetID = target.id
             return
         }
@@ -44,15 +55,22 @@ struct ReorderDropDelegate: DropDelegate {
     func performDrop(info: DropInfo) -> Bool {
         imageDropTargetID = nil
         if isImageDrop(info) {
-            // Its own image dropped back on it: nothing to do.
-            guard draggedAttachmentTaskID != target.id else { return false }
+            guard refusesImages == false else { return false }
         }
-        if draggingId == nil, info.hasItemsConforming(to: [UTType.image]),
-           let provider = info.itemProviders(for: [UTType.image]).first {
-            ImageItemProviderLoader.loadImage(from: provider) { image in
-                guard let image else { return }
-                DispatchQueue.main.async {
-                    store.setAttachment(image, for: target)
+        if draggingId == nil, info.hasItemsConforming(to: [UTType.image]) {
+            // Several dropped at once are all added, as far as there's room
+            // (the store ignores any beyond the maximum).
+            let room = currentTarget.map { TaskItem.maxAttachments - $0.attachmentIDs.count } ?? 0
+            let providers = info.itemProviders(for: [UTType.image]).prefix(max(room, 0))
+            guard providers.isEmpty == false else { return false }
+            let taskID = target.id
+            for provider in providers {
+                ImageItemProviderLoader.loadImage(from: provider) { image in
+                    guard let image else { return }
+                    DispatchQueue.main.async {
+                        guard let task = store.tasks.first(where: { $0.id == taskID }) else { return }
+                        store.addAttachment(image, to: task)
+                    }
                 }
             }
             return true
@@ -63,7 +81,7 @@ struct ReorderDropDelegate: DropDelegate {
 
     func dropUpdated(info: DropInfo) -> DropProposal? {
         if isImageDrop(info) {
-            return DropProposal(operation: draggedAttachmentTaskID == target.id ? .forbidden : .copy)
+            return DropProposal(operation: refusesImages ? .forbidden : .copy)
         }
         return DropProposal(operation: .move)
     }

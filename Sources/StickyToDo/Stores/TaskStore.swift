@@ -48,8 +48,8 @@ final class TaskStore: ObservableObject {
             attachmentStore.save(attachmentImage) { [weak self] id in
                 if isInserted {
                     self?.attachSavedImage(id, toTaskID: taskID)
-                } else {
-                    newTask.attachmentID = id
+                } else if let id {
+                    newTask.attachmentIDs.append(id)
                 }
             }
         }
@@ -69,7 +69,8 @@ final class TaskStore: ObservableObject {
     }
 
     func delete(_ task: TaskItem) {
-        if let attachmentID = task.attachmentID {
+        let attachmentIDs = tasks.first { $0.id == task.id }?.attachmentIDs ?? task.attachmentIDs
+        for attachmentID in attachmentIDs {
             attachmentStore.delete(id: attachmentID)
         }
         tasks.removeAll { $0.id == task.id }
@@ -139,41 +140,46 @@ final class TaskStore: ObservableObject {
         tasks.insert(item, at: adjustedIndex)
     }
 
-    /// Saves in the background (a big screenshot takes ~90 ms to encode),
-    /// then swaps it in. The old image is only deleted once the new one is
-    /// saved, so a failed save leaves the task as it was.
-    func setAttachment(_ image: NSImage, for task: TaskItem) {
-        guard indexOfTask(task) != nil else { return }
+    /// Adds an image to the task, unless it already has the maximum. Saves
+    /// in the background (a big screenshot takes ~90 ms to encode), then
+    /// appends it. Returns false if the task is full.
+    @discardableResult
+    func addAttachment(_ image: NSImage, to task: TaskItem) -> Bool {
+        guard let index = indexOfTask(task), tasks[index].canAddAttachment else { return false }
         let taskID = task.id
         attachmentStore.save(image) { [weak self] id in
             self?.attachSavedImage(id, toTaskID: taskID)
         }
+        return true
     }
 
     private func attachSavedImage(_ newID: UUID?, toTaskID taskID: UUID) {
         guard let newID else { return }
-        guard let index = tasks.firstIndex(where: { $0.id == taskID }) else {
-            // The task was deleted while its image was being saved.
+        // The task was deleted while its image was being saved, or filled
+        // up meanwhile (two quick drops): don't leave the file behind.
+        guard let index = tasks.firstIndex(where: { $0.id == taskID }), tasks[index].canAddAttachment else {
             attachmentStore.delete(id: newID)
             return
         }
-        if let oldID = tasks[index].attachmentID {
-            attachmentStore.delete(id: oldID)
-        }
-        tasks[index].attachmentID = newID
+        tasks[index].attachmentIDs.append(newID)
     }
 
-    func removeAttachment(for task: TaskItem) {
+    func removeAttachment(_ attachmentID: UUID, from task: TaskItem) {
+        guard let index = indexOfTask(task), tasks[index].attachmentIDs.contains(attachmentID) else { return }
+        attachmentStore.delete(id: attachmentID)
+        tasks[index].attachmentIDs.removeAll { $0 == attachmentID }
+    }
+
+    func removeAllAttachments(for task: TaskItem) {
         guard let index = indexOfTask(task) else { return }
-        if let id = tasks[index].attachmentID {
+        for id in tasks[index].attachmentIDs {
             attachmentStore.delete(id: id)
         }
-        tasks[index].attachmentID = nil
+        tasks[index].attachmentIDs = []
     }
 
-    func attachmentImage(for task: TaskItem) -> NSImage? {
-        guard let id = task.attachmentID else { return nil }
-        return attachmentStore.loadImage(for: id)
+    func attachmentImage(_ attachmentID: UUID) -> NSImage? {
+        attachmentStore.loadImage(for: attachmentID)
     }
 
     /// The row's small thumbnail; `completion` runs on the main thread.
@@ -189,18 +195,19 @@ final class TaskStore: ObservableObject {
         attachmentStore.url(for: attachmentID)
     }
 
-    /// Opens the image in Quick Look.
-    func openAttachment(for task: TaskItem) {
-        guard let id = task.attachmentID else { return }
-        AttachmentQuickLook.shared.show(attachmentStore.url(for: id))
+    /// Opens the task's images in Quick Look, starting at `attachmentID`;
+    /// the arrow keys go to the others.
+    func openAttachment(_ attachmentID: UUID, in task: TaskItem) {
+        let ids = tasks.first { $0.id == task.id }?.attachmentIDs ?? task.attachmentIDs
+        guard let index = ids.firstIndex(of: attachmentID) else { return }
+        AttachmentQuickLook.shared.show(ids.map { attachmentStore.url(for: $0) }, startingAt: index)
     }
 
-    /// Puts the task's image on the clipboard, as PNG and TIFF so any app
-    /// can paste it. Returns false if there's no image to copy.
+    /// Puts an image on the clipboard, as PNG and TIFF so any app can paste
+    /// it. Returns false if there's no such image.
     @discardableResult
-    func copyAttachment(for task: TaskItem, to pasteboard: NSPasteboard = .general) -> Bool {
-        guard let id = task.attachmentID,
-              let png = try? Data(contentsOf: attachmentStore.url(for: id)) else { return false }
+    func copyAttachment(_ attachmentID: UUID, to pasteboard: NSPasteboard = .general) -> Bool {
+        guard let png = try? Data(contentsOf: attachmentStore.url(for: attachmentID)) else { return false }
         let item = NSPasteboardItem()
         item.setData(png, forType: .png)
         if let tiff = NSImage(data: png)?.tiffRepresentation {
@@ -213,9 +220,8 @@ final class TaskStore: ObservableObject {
     /// What dragging a task's image out of the card carries: the PNG, plus
     /// a file for apps like Finder. The file is handed over as a copy, so a
     /// drop can never move the attachment out of the app's folder.
-    func attachmentDragItem(for task: TaskItem) -> NSItemProvider? {
-        guard let id = task.attachmentID else { return nil }
-        let url = attachmentStore.url(for: id)
+    func attachmentDragItem(_ attachmentID: UUID, of task: TaskItem) -> NSItemProvider? {
+        let url = attachmentStore.url(for: attachmentID)
         guard FileManager.default.fileExists(atPath: url.path) else { return nil }
         let provider = NSItemProvider()
         provider.suggestedName = Self.attachmentFileName(for: task.title)
@@ -251,7 +257,7 @@ final class TaskStore: ObservableObject {
         guard staleTasks.isEmpty == false else { return 0 }
         // Same as delete(_:): a cleared task takes its image file with it,
         // rather than leaving it behind in the attachments folder.
-        for attachmentID in staleTasks.compactMap(\.attachmentID) {
+        for attachmentID in staleTasks.flatMap(\.attachmentIDs) {
             attachmentStore.delete(id: attachmentID)
         }
         let staleIDSet = Set(staleTasks.map(\.id))

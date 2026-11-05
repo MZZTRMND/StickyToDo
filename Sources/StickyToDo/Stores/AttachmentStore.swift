@@ -3,7 +3,7 @@ import ImageIO
 import UniformTypeIdentifiers
 
 /// Reads/writes attachment images as PNG files on disk, keyed by UUID.
-/// Tasks only carry a UUID reference (TaskItem.attachmentID); the image
+/// Tasks only carry a UUID reference (TaskItem.attachmentIDs); the image
 /// bytes never touch the UserDefaults-backed task JSON blob.
 ///
 /// Next to each image it keeps a small thumbnail for the hover preview, so

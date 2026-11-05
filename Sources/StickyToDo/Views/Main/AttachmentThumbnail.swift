@@ -22,6 +22,8 @@ struct AttachmentPreviewSource {
 struct AttachmentThumbnail: View {
     let attachmentID: UUID
     let isDone: Bool
+    /// A square tile, for a row of several images.
+    var isTile = false
     let source: AttachmentPreviewSource
     let onOpen: () -> Void
 
@@ -88,6 +90,7 @@ struct AttachmentThumbnail: View {
     /// Keeps the image's shape, within limits: a tall phone screenshot
     /// doesn't become a sliver, a wide one doesn't run across the card.
     private func width(for image: NSImage?) -> CGFloat {
+        if isTile { return Self.height }
         guard let image, image.size.height > 0 else { return Self.placeholderWidth }
         let natural = Self.height * image.size.width / image.size.height
         return min(max(natural, Self.widthRange.lowerBound), Self.widthRange.upperBound)

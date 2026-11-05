@@ -10,16 +10,21 @@ import Quartz
 final class AttachmentQuickLook: NSObject, QLPreviewPanelDataSource {
     static let shared = AttachmentQuickLook()
 
-    private var url: URL?
+    private var urls: [URL] = []
+    private var startIndex = 0
 
-    func show(_ url: URL) {
-        self.url = url
+    /// Shows `urls`, starting at `index`; the arrow keys move between them.
+    func show(_ urls: [URL], startingAt index: Int = 0) {
+        guard urls.isEmpty == false else { return }
+        self.urls = urls
+        startIndex = min(max(index, 0), urls.count - 1)
         guard let panel = QLPreviewPanel.shared() else {
-            NSWorkspace.shared.open(url)
+            NSWorkspace.shared.open(urls[startIndex])
             return
         }
         if panel.isVisible {
             panel.reloadData()
+            panel.currentPreviewItemIndex = startIndex
         } else {
             panel.makeKeyAndOrderFront(nil)
         }
@@ -30,20 +35,21 @@ final class AttachmentQuickLook: NSObject, QLPreviewPanelDataSource {
     func beginControl(of panel: QLPreviewPanel) {
         panel.dataSource = self
         panel.reloadData()
+        panel.currentPreviewItemIndex = startIndex
     }
 
     func endControl(of panel: QLPreviewPanel) {
         panel.dataSource = nil
-        url = nil
+        urls = []
     }
 
     // MARK: QLPreviewPanelDataSource
 
     func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
-        url == nil ? 0 : 1
+        urls.count
     }
 
     func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> QLPreviewItem! {
-        url as NSURL?
+        urls.indices.contains(index) ? urls[index] as NSURL : nil
     }
 }

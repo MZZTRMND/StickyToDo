@@ -11,12 +11,15 @@ struct TaskRow: View {
     let isDragging: Bool
     /// The attachment's thumbnail (see AttachmentThumbnail).
     let attachmentPreview: AttachmentPreviewSource
-    let onOpenAttachment: () -> Void
+    /// Opens Quick Look at this image (the task's others one arrow away).
+    let onOpenAttachment: (UUID) -> Void
     /// An image from outside is being dragged over this row.
     let isImageDropTarget: Bool
     let onEditingChanged: (Bool) -> Void
     /// Builds the "…" / right-click menu when it's opened (see TaskMenuBuilder).
     let makeMenu: () -> NSMenu
+    /// The menu of one image, from right-clicking its thumbnail.
+    let makeImageMenu: (UUID) -> NSMenu
     @Binding var editTrigger: Bool
     @State private var isCircleHovered = false
     @State private var isRowHovered = false
@@ -67,14 +70,9 @@ struct TaskRow: View {
                         .padding(.top, 2)
                 }
 
-                if let attachmentID = task.attachmentID {
-                    AttachmentThumbnail(
-                        attachmentID: attachmentID,
-                        isDone: task.isDone,
-                        source: attachmentPreview,
-                        onOpen: onOpenAttachment
-                    )
-                    .padding(.top, 8)
+                if task.hasAttachments {
+                    thumbnails
+                        .padding(.top, 8)
                 }
             }
             .padding(.leading, showCheckboxes ? 12 : 0)
@@ -155,8 +153,9 @@ struct TaskRow: View {
             guard isEditing == false else { return }
             onToggle()
         }
-        // Right-click menu. Left off while editing, so the text field keeps
-        // its own Cut/Copy/Paste menu.
+        // Right-click menu (thumbnails have their own, which win over this
+        // one). Left off while editing, so the text field keeps its own
+        // Cut/Copy/Paste menu.
         .overlay {
             if isEditing == false {
                 RightClickMenuArea(makeMenu: makeMenu)
@@ -300,13 +299,37 @@ struct TaskRow: View {
         task.isDone ? completedTextColor : Theme.secondaryText
     }
 
+    /// One image keeps its own shape; several become a row of square tiles,
+    /// so up to four fit side by side.
+    private var thumbnails: some View {
+        let ids = task.attachmentIDs
+        return HStack(spacing: 6) {
+            ForEach(ids, id: \.self) { id in
+                AttachmentThumbnail(
+                    attachmentID: id,
+                    isDone: task.isDone,
+                    isTile: ids.count > 1,
+                    source: attachmentPreview,
+                    onOpen: { onOpenAttachment(id) }
+                )
+                .overlay {
+                    // A single image is covered by the task's own menu (Copy
+                    // Image, Remove Image), so it needs no menu of its own.
+                    if isEditing == false, ids.count > 1 {
+                        RightClickMenuArea(makeMenu: { makeImageMenu(id) }, takesPrecedence: true)
+                    }
+                }
+            }
+        }
+    }
+
     /// Shown while an image is dragged over the row: an accent outline, and
     /// "Drop to attach" when the task has no image yet.
     private var imageDropHint: some View {
         RoundedRectangle(cornerRadius: 16, style: .continuous)
             .strokeBorder(cardColors.accent ?? Theme.accent, lineWidth: 1.5)
             .overlay(alignment: .bottomTrailing) {
-                if task.attachmentID == nil {
+                if task.hasAttachments == false {
                     Text("Drop to attach")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(Theme.secondaryText)
