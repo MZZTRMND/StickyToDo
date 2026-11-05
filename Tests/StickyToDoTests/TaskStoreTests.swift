@@ -302,4 +302,35 @@ final class TaskStoreTests: XCTestCase {
         XCTAssertNotNil(created?.attachmentID)
         XCTAssertNotNil(store.attachmentImage(for: store.tasks[0]))
     }
+    func testPurgeStaleCompletedTasksDeletesTheirAttachmentFiles() {
+        let store = makeStore()
+        let today = Date(timeIntervalSince1970: 1_700_000_000)
+        let yesterday = today.addingTimeInterval(-86_400)
+        guard let staleImageID = attachmentStore.save(makeTestImage()),
+              let keptImageID = attachmentStore.save(makeTestImage()) else {
+            return XCTFail("Expected save to succeed")
+        }
+        store.tasks = [
+            TaskItem(title: "Done yesterday", isDone: true, doneAt: yesterday, attachmentID: staleImageID),
+            TaskItem(title: "Done today", isDone: true, doneAt: today, attachmentID: keptImageID)
+        ]
+
+        store.purgeStaleCompletedTasks(referenceDate: today)
+
+        XCTAssertFalse(FileManager.default.fileExists(atPath: attachmentStore.url(for: staleImageID).path))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: attachmentStore.url(for: keptImageID).path))
+    }
+
+    func testSetAttachmentKeepsTheOldImageWhenSavingTheNewOneFails() {
+        let store = makeStore()
+        store.addTask(title: "Task")
+        store.setAttachment(makeTestImage(), for: store.tasks[0])
+        let oldID = store.tasks[0].attachmentID!
+
+        // An empty NSImage has no bitmap, so it can't be saved as PNG.
+        store.setAttachment(NSImage(), for: store.tasks[0])
+
+        XCTAssertEqual(store.tasks[0].attachmentID, oldID)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: attachmentStore.url(for: oldID).path))
+    }
 }

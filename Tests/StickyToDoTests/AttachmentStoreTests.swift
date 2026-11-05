@@ -59,4 +59,12 @@ final class AttachmentStoreTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: store.url(for: id).path))
         XCTAssertNil(store.loadImage(for: id))
     }
+    func testRealAppKeepsItsOriginalFolder() {
+        XCTAssertEqual(AttachmentStore.folderName(forBundleID: "com.sticky.todo"), "StickyToDo")
+    }
+
+    func testOtherBuildsGetTheirOwnFolder() {
+        XCTAssertEqual(AttachmentStore.folderName(forBundleID: "com.sticky.todo.test"), "StickyToDo (com.sticky.todo.test)")
+        XCTAssertEqual(AttachmentStore.folderName(forBundleID: nil), "StickyToDo (unbundled)")
+    }
 }
