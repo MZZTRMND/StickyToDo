@@ -9,9 +9,11 @@ struct TaskRow: View {
     let onRename: (String) -> Void
     let categoryBadge: TaskCategoryBadge?
     let isDragging: Bool
-    /// Loads the attachment's small preview image (see AttachmentStore).
-    let loadAttachmentPreview: (UUID, @escaping (NSImage?) -> Void) -> Void
+    /// The attachment's thumbnail (see AttachmentThumbnail).
+    let attachmentPreview: AttachmentPreviewSource
     let onOpenAttachment: () -> Void
+    /// An image from outside is being dragged over this row.
+    let isImageDropTarget: Bool
     let onEditingChanged: (Bool) -> Void
     /// Builds the "…" / right-click menu when it's opened (see TaskMenuBuilder).
     let makeMenu: () -> NSMenu
@@ -20,11 +22,6 @@ struct TaskRow: View {
     @State private var isRowHovered = false
     @State private var isEditing = false
     @State private var draftTitle = ""
-    @State private var isAttachmentHovered = false
-    @State private var showAttachmentPreview = false
-    /// Loaded when the pointer first reaches "Image", not when the row is built.
-    @State private var previewImage: NSImage?
-    @State private var attachmentPreviewTimer = HoverTooltipTimer()
     /// Shift+Return adds a line while editing (for bullet lists).
     @State private var newlineKeyMonitor = NewlineKeyMonitor()
     @FocusState private var isTitleFocused: Bool
@@ -58,11 +55,25 @@ struct TaskRow: View {
                         .onTapGesture(count: 2) {
                             startEdit()
                         }
+                }
 
-                    if task.attachmentID != nil || categoryBadge != nil {
-                        metaLine
-                            .padding(.top, 4)
-                    }
+                if let attachmentID = task.attachmentID {
+                    AttachmentThumbnail(
+                        attachmentID: attachmentID,
+                        isDone: task.isDone,
+                        source: attachmentPreview,
+                        onOpen: onOpenAttachment
+                    )
+                    .padding(.top, 8)
+                }
+
+                if isEditing == false, let categoryBadge {
+                    Text(categoryBadge.name)
+                        .font(.system(size: 12, weight: .regular))
+                        .lineLimit(1)
+                        .foregroundStyle(metaLineColor)
+                        .help(categoryBadge.name)
+                        .padding(.top, 4)
                 }
             }
             .padding(.leading, showCheckboxes ? 12 : 0)
@@ -127,12 +138,18 @@ struct TaskRow: View {
         .contentShape(Rectangle())
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill((isRowHovered || isDragging) ? rowHoverColor : .clear)
+                .fill((isRowHovered || isDragging || isImageDropTarget) ? rowHoverColor : .clear)
                 // Scoped to the background alone, so a hover change doesn't
                 // re-animate the whole row subtree (including the menu).
                 .animation(.easeInOut(duration: 0.18), value: isRowHovered)
                 .animation(.easeInOut(duration: 0.18), value: isDragging)
         )
+        .overlay {
+            if isImageDropTarget {
+                imageDropHint
+            }
+        }
+        .animation(.easeInOut(duration: 0.12), value: isImageDropTarget)
         .onTapGesture {
             guard isEditing == false else { return }
             onToggle()
@@ -146,10 +163,6 @@ struct TaskRow: View {
         }
         .onHover { hovering in
             isRowHovered = hovering
-        }
-        .onChange(of: task.attachmentID) {
-            previewImage = nil
-            showAttachmentPreview = false
         }
         .onChange(of: task.isDone) {
             isRowHovered = false
@@ -174,7 +187,6 @@ struct TaskRow: View {
             }
         }
         .onDisappear {
-            attachmentPreviewTimer.cancel()
             newlineKeyMonitor.stop()
         }
     }
@@ -287,82 +299,20 @@ struct TaskRow: View {
         task.isDone ? completedTextColor : Theme.secondaryText
     }
 
-    @ViewBuilder
-    private var metaLine: some View {
-        HStack(spacing: 4) {
-            if task.attachmentID != nil {
-                HStack(spacing: 3) {
-                    Image(systemName: "paperclip")
-                        .font(.system(size: 12, weight: .regular))
-                    Text("Image")
-                        .font(.system(size: 12, weight: .regular))
-                }
-                .foregroundStyle(metaLineColor)
-                .contentShape(Rectangle())
-                .onHover { hovering in
-                    isAttachmentHovered = hovering
-                    handleAttachmentHoverChanged(hovering)
-                    if hovering {
-                        NSCursor.pointingHand.set()
-                    } else {
-                        NSCursor.arrow.set()
-                    }
-                }
-                .onTapGesture {
-                    onOpenAttachment()
-                }
-                .overlay(alignment: .topLeading) {
-                    if showAttachmentPreview, let previewImage {
-                        Image(nsImage: previewImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 120, height: 120)
-                            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            .offset(y: -130)
-                            .transition(.opacity)
-                    }
-                }
-                .accessibilityLabel("View attachment")
-
-                if categoryBadge != nil {
-                    Text("·")
-                        .font(.system(size: 12, weight: .regular))
-                        .foregroundStyle(metaLineColor)
-                }
+    /// Shown while an image is dragged over the row: an accent outline and
+    /// what dropping will do - a task holds one image, so a second replaces it.
+    private var imageDropHint: some View {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .strokeBorder(cardColors.accent ?? Theme.accent, lineWidth: 1.5)
+            .overlay(alignment: .bottomTrailing) {
+                Text(task.attachmentID == nil ? "Drop to attach" : "Drop to replace image")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Theme.secondaryText)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 6)
             }
-
-            if let categoryBadge {
-                Text(categoryBadge.name)
-                    .font(.system(size: 12, weight: .regular))
-                    .lineLimit(1)
-                    .foregroundStyle(metaLineColor)
-                    .help(categoryBadge.name)
-            }
-        }
-    }
-
-    private func handleAttachmentHoverChanged(_ hovering: Bool) {
-        attachmentPreviewTimer.cancel()
-        if hovering, previewImage == nil, let attachmentID = task.attachmentID {
-            // Has the hover delay (1 s) to arrive, so it's normally ready in time.
-            loadAttachmentPreview(attachmentID) { image in
-                guard task.attachmentID == attachmentID else { return }
-                previewImage = image
-            }
-        }
-        if hovering == false {
-            withAnimation(.easeOut(duration: 0.12)) {
-                showAttachmentPreview = false
-            }
-            return
-        }
-
-        attachmentPreviewTimer.scheduleShow {
-            guard isAttachmentHovered else { return }
-            withAnimation(.easeInOut(duration: 0.15)) {
-                showAttachmentPreview = true
-            }
-        }
+            .allowsHitTesting(false)
+            .transition(.opacity)
     }
 
     private func startEdit() {

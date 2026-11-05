@@ -1,3 +1,4 @@
+import Quartz
 import AppKit
 import Combine
 import ServiceManagement
@@ -691,5 +692,24 @@ private struct RootContentView: View {
         ContentView()
             .environmentObject(store)
             .preferredColorScheme(settings.preferredColorScheme)
+    }
+}
+
+// MARK: Quick Look
+
+/// macOS offers the shared Quick Look panel to the responder chain, which
+/// ends at the app delegate; accepting it here lets attachments open in
+/// Quick Look from any of the app's windows (see AttachmentQuickLook).
+extension AppDelegate {
+    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool {
+        true
+    }
+
+    override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        AttachmentQuickLook.shared.beginControl(of: panel)
+    }
+
+    override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        AttachmentQuickLook.shared.endControl(of: panel)
     }
 }

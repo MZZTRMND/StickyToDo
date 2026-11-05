@@ -17,6 +17,7 @@ final class TaskMenuTests: XCTestCase {
                 assignCategory: { self.log.append("category \($0?.uuidString ?? "none")") },
                 createCategory: { self.log.append("create") },
                 pasteImage: { self.log.append("paste") },
+                copyImage: { self.log.append("copy image") },
                 removeAttachment: { self.log.append("remove") },
                 edit: { self.log.append("edit") },
                 delete: { self.log.append("delete") }
@@ -47,7 +48,7 @@ final class TaskMenuTests: XCTestCase {
 
         XCTAssertEqual(titles(menu), [
             "Unmark as done", "Unmark as important", "-", "Move to category",
-            "Paste Image", "Remove Attachment", "-", "Edit task", "Delete task",
+            "Paste Image", "Copy Image", "Remove Attachment", "-", "Edit task", "Delete task",
         ])
     }
 

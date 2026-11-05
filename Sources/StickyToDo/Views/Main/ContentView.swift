@@ -9,6 +9,11 @@ struct ContentView: View {
     @State private var headerQuickAddTooltipTimer = HoverTooltipTimer()
     @State private var draggingId: UUID?
     @State private var dragEndWatcher = DragEndWatcher()
+    /// The row an image from outside is being dragged over (its highlight).
+    @State private var imageDropTargetID: UUID?
+    /// The task whose thumbnail is being dragged out, so dropping it back
+    /// on its own task does nothing.
+    @State private var draggedAttachmentTaskID: UUID?
     /// The header's date. State rather than read on every render, so it can
     /// be refreshed when the day changes - otherwise a card left open
     /// overnight kept showing yesterday until something happened to redraw it.
@@ -312,7 +317,8 @@ struct ContentView: View {
             showCheckboxes: settings.showCheckboxes,
             categoryBadge: categoryBadge(for: task),
             isDragging: draggingId == task.id,
-            isEditRequested: editingTaskId == task.id
+            isEditRequested: editingTaskId == task.id,
+            isImageDropTarget: imageDropTargetID == task.id
         )
     }
 
@@ -326,8 +332,22 @@ struct ContentView: View {
             onRename: { store.updateTitle(for: task, title: $0) },
             categoryBadge: categoryBadge(for: task),
             isDragging: draggingId == task.id,
-            loadAttachmentPreview: { id, completion in store.loadAttachmentThumbnail(for: id, completion: completion) },
+            attachmentPreview: AttachmentPreviewSource(
+                cached: { store.cachedAttachmentThumbnail(for: $0) },
+                load: { id, completion in store.loadAttachmentThumbnail(for: id, completion: completion) },
+                dragItem: { _ in store.attachmentDragItem(for: task) },
+                onDragStarted: {
+                    draggedAttachmentTaskID = task.id
+                    let taskID = task.id
+                    dragEndWatcher.start {
+                        if draggedAttachmentTaskID == taskID {
+                            draggedAttachmentTaskID = nil
+                        }
+                    }
+                }
+            ),
             onOpenAttachment: { store.openAttachment(for: task) },
+            isImageDropTarget: imageDropTargetID == task.id,
             onEditingChanged: { isEditing in
                 if isEditing {
                     currentlyEditingTaskID = task.id
@@ -358,7 +378,13 @@ struct ContentView: View {
                 }
                 return NSItemProvider(object: task.id.uuidString as NSString)
             }
-            .onDrop(of: [.text, .image], delegate: ReorderDropDelegate(target: task, store: store, draggingId: $draggingId))
+            .onDrop(of: [.text, .image], delegate: ReorderDropDelegate(
+                target: task,
+                store: store,
+                draggingId: $draggingId,
+                imageDropTargetID: $imageDropTargetID,
+                draggedAttachmentTaskID: $draggedAttachmentTaskID
+            ))
     }
 
     private func toggleDoneWithDelay(taskID: UUID) {
@@ -451,6 +477,7 @@ struct ContentView: View {
                     guard let image = pasteboardImage else { return }
                     store.setAttachment(image, for: task)
                 },
+                copyImage: { store.copyAttachment(for: task) },
                 removeAttachment: { store.removeAttachment(for: task) },
                 edit: {
                     editingTaskId = taskID
@@ -674,6 +701,7 @@ private struct TaskRowKey: Equatable {
     let categoryBadge: TaskCategoryBadge?
     let isDragging: Bool
     let isEditRequested: Bool
+    let isImageDropTarget: Bool
 }
 
 /// Rebuilds its content only when `key` changes. The row's action closures

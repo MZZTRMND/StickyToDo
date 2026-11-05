@@ -127,6 +127,11 @@ final class AttachmentStore {
         }
     }
 
+    /// The thumbnail if it's already loaded; never touches the disk.
+    func cachedThumbnail(for id: UUID) -> NSImage? {
+        thumbnailCache[id]
+    }
+
     func delete(id: UUID) {
         thumbnailCache[id] = nil
         try? FileManager.default.removeItem(at: url(for: id))

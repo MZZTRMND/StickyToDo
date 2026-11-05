@@ -9,6 +9,7 @@ struct TaskMenuActions {
     var assignCategory: (UUID?) -> Void
     var createCategory: () -> Void
     var pasteImage: () -> Void
+    var copyImage: () -> Void
     var removeAttachment: () -> Void
     var edit: () -> Void
     var delete: () -> Void
@@ -60,6 +61,7 @@ enum TaskMenuBuilder {
             menu.addItem(item("Paste Image", symbol: "photo", actions.pasteImage))
         }
         if task.attachmentID != nil {
+            menu.addItem(item("Copy Image", symbol: "doc.on.doc", actions.copyImage))
             menu.addItem(item("Remove Attachment", symbol: "paperclip", actions.removeAttachment))
         }
         menu.addItem(.separator())

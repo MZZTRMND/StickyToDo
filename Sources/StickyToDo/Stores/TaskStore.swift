@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import UniformTypeIdentifiers
 
 final class TaskStore: ObservableObject {
     @Published var tasks: [TaskItem] = [] {
@@ -175,14 +176,67 @@ final class TaskStore: ObservableObject {
         return attachmentStore.loadImage(for: id)
     }
 
-    /// The small hover-preview image; `completion` runs on the main thread.
+    /// The row's small thumbnail; `completion` runs on the main thread.
     func loadAttachmentThumbnail(for attachmentID: UUID, completion: @escaping (NSImage?) -> Void) {
         attachmentStore.loadThumbnail(for: attachmentID, completion: completion)
     }
 
+    func cachedAttachmentThumbnail(for attachmentID: UUID) -> NSImage? {
+        attachmentStore.cachedThumbnail(for: attachmentID)
+    }
+
+    func attachmentURL(for attachmentID: UUID) -> URL {
+        attachmentStore.url(for: attachmentID)
+    }
+
+    /// Opens the image in Quick Look.
     func openAttachment(for task: TaskItem) {
         guard let id = task.attachmentID else { return }
-        NSWorkspace.shared.open(attachmentStore.url(for: id))
+        AttachmentQuickLook.shared.show(attachmentStore.url(for: id))
+    }
+
+    /// Puts the task's image on the clipboard, as PNG and TIFF so any app
+    /// can paste it. Returns false if there's no image to copy.
+    @discardableResult
+    func copyAttachment(for task: TaskItem, to pasteboard: NSPasteboard = .general) -> Bool {
+        guard let id = task.attachmentID,
+              let png = try? Data(contentsOf: attachmentStore.url(for: id)) else { return false }
+        let item = NSPasteboardItem()
+        item.setData(png, forType: .png)
+        if let tiff = NSImage(data: png)?.tiffRepresentation {
+            item.setData(tiff, forType: .tiff)
+        }
+        pasteboard.clearContents()
+        return pasteboard.writeObjects([item])
+    }
+
+    /// What dragging a task's image out of the card carries: the PNG, plus
+    /// a file for apps like Finder. The file is handed over as a copy, so a
+    /// drop can never move the attachment out of the app's folder.
+    func attachmentDragItem(for task: TaskItem) -> NSItemProvider? {
+        guard let id = task.attachmentID else { return nil }
+        let url = attachmentStore.url(for: id)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        let provider = NSItemProvider()
+        provider.suggestedName = Self.attachmentFileName(for: task.title)
+        provider.registerFileRepresentation(forTypeIdentifier: UTType.png.identifier, fileOptions: [], visibility: .all) { completion in
+            completion(url, false, nil)
+            return nil
+        }
+        return provider
+    }
+
+    /// "Design popup.png" from the title's first line: marks and characters
+    /// file names can't hold removed, kept short.
+    static func attachmentFileName(for title: String) -> String {
+        let firstLine = title.split(separator: "\n").first.map(String.init) ?? ""
+        let plain = String(TaskTitleFormat.inline(firstLine).characters)
+        let cleaned = plain
+            .components(separatedBy: CharacterSet(charactersIn: "/:\\?%*|\"<>"))
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let short = String(cleaned.prefix(40)).trimmingCharacters(in: .whitespaces)
+        return short.isEmpty ? "Image" : short
     }
 
     /// Removes completed tasks left over from a previous day, keeping today's
