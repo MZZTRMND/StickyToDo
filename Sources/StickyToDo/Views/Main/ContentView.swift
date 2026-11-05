@@ -282,17 +282,28 @@ struct ContentView: View {
     }
 
     private func list(_ tasks: [TaskItem]) -> some View {
-        ScrollView {
-            LazyVStack(spacing: settings.cardStyle.density.rowSpacing) {
+        // Once per render rather than once per row's menu: it's a call to
+        // the pasteboard server.
+        let canPasteImage = hasPasteboardImage
+        return ScrollView {
+            // A plain VStack, not a LazyVStack: a lazy stack throws rows away
+            // as they scroll out and rebuilds them (menu button, drag source,
+            // hover tracking) as they scroll back in, which is what made
+            // scrolling heavy. A day's list is short enough to build once.
+            VStack(spacing: settings.cardStyle.density.rowSpacing) {
                 ForEach(tasks) { task in
-                    taskRowView(for: task)
+                    // Redraws a row only when something it shows changed, so
+                    // checking off one task doesn't rebuild every row's menus.
+                    EquatableRow(key: rowKey(for: task, canPasteImage: canPasteImage)) {
+                        taskRowView(for: task, canPasteImage: canPasteImage)
+                    }
+                    .equatable()
                 }
             }
             .padding(.top, Layout.listTopPadding)
             .padding(.bottom, Layout.listBottomPadding)
             // One measurement of the whole laid-out stack, which is all the
-            // window sizing needs - LazyVStack accounts for rows that aren't
-            // mounted yet, so this stays correct while scrolling.
+            // window sizing needs.
             .background(
                 GeometryReader { proxy in
                     Color.clear
@@ -312,8 +323,22 @@ struct ContentView: View {
         }
     }
 
+    /// Everything a row and its menus show. Must list every input of
+    /// taskRowView/rowContextMenu that can change, or the row goes stale.
+    private func rowKey(for task: TaskItem, canPasteImage: Bool) -> TaskRowKey {
+        TaskRowKey(
+            task: task,
+            showCheckboxes: settings.showCheckboxes,
+            categoryBadge: categoryBadge(for: task),
+            isDragging: draggingId == task.id,
+            isEditRequested: editingTaskId == task.id,
+            categories: store.categories,
+            canPasteImage: canPasteImage
+        )
+    }
+
     @ViewBuilder
-    private func listItem(for task: TaskItem) -> some View {
+    private func listItem(for task: TaskItem, canPasteImage: Bool) -> some View {
         TaskRow(
             task: task,
             showCheckboxes: settings.showCheckboxes,
@@ -331,14 +356,14 @@ struct ContentView: View {
                     currentlyEditingTaskID = nil
                 }
             },
-            rowMenu: { rowContextMenu(for: task) },
+            rowMenu: { rowContextMenu(for: task, canPasteImage: canPasteImage) },
             editTrigger: taskEditBinding(for: task.id)
         )
     }
 
     @ViewBuilder
-    private func taskRowView(for task: TaskItem) -> some View {
-        listItem(for: task)
+    private func taskRowView(for task: TaskItem, canPasteImage: Bool) -> some View {
+        listItem(for: task, canPasteImage: canPasteImage)
             .id(task.id)
             .opacity(draggingId == task.id ? 0.4 : 1.0)
             .onDrag {
@@ -356,7 +381,7 @@ struct ContentView: View {
             }
             .onDrop(of: [.text, .image], delegate: ReorderDropDelegate(target: task, store: store, draggingId: $draggingId))
             .contextMenu {
-                rowContextMenu(for: task)
+                rowContextMenu(for: task, canPasteImage: canPasteImage)
             }
     }
 
@@ -423,7 +448,7 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private func rowContextMenu(for task: TaskItem) -> some View {
+    private func rowContextMenu(for task: TaskItem, canPasteImage: Bool) -> some View {
         Button {
             toggleDoneWithDelay(taskID: task.id)
         } label: {
@@ -483,7 +508,7 @@ struct ContentView: View {
             Label("Move to category", systemImage: "tag")
         }
 
-        if hasPasteboardImage {
+        if canPasteImage {
             Button {
                 guard let image = pasteboardImage else { return }
                 store.setAttachment(image, for: task)
@@ -718,4 +743,28 @@ private struct EmptyStateMessage {
     let line1: String
     let line2: String
     let line3: String
+}
+
+/// What a task row shows, compared to decide whether it needs redrawing.
+private struct TaskRowKey: Equatable {
+    let task: TaskItem
+    let showCheckboxes: Bool
+    let categoryBadge: TaskCategoryBadge?
+    let isDragging: Bool
+    let isEditRequested: Bool
+    /// The row's menu lists every category.
+    let categories: [TaskCategory]
+    let canPasteImage: Bool
+}
+
+/// Rebuilds its content only when `key` changes. The row's action closures
+/// are new on every render and never compare equal, which otherwise made
+/// SwiftUI rebuild every row - and every row's menus - on any change at all.
+private struct EquatableRow<Key: Equatable, Content: View>: View, Equatable {
+    let key: Key
+    @ViewBuilder let content: () -> Content
+
+    var body: some View { content() }
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.key == rhs.key }
 }
