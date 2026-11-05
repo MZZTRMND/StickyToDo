@@ -25,6 +25,8 @@ struct TaskRow: View {
     /// Loaded when the pointer first reaches "Image", not when the row is built.
     @State private var previewImage: NSImage?
     @State private var attachmentPreviewTimer = HoverTooltipTimer()
+    /// Shift+Return adds a line while editing (for bullet lists).
+    @State private var newlineKeyMonitor = NewlineKeyMonitor()
     @FocusState private var isTitleFocused: Bool
     @EnvironmentObject private var settings: AppSettings
     @Environment(\.cardColors) private var cardColors
@@ -39,7 +41,8 @@ struct TaskRow: View {
                 if isEditing {
                     // Wraps over several lines like the title it replaces, so
                     // a long task keeps its shape while editing instead of
-                    // collapsing into one scrolling line. Return still saves.
+                    // collapsing into one scrolling line. Return still saves;
+                    // Shift+Return adds a line (newlineKeyMonitor).
                     TextField("", text: $draftTitle, axis: .vertical)
                         .textFieldStyle(.plain)
                         .font(.system(size: taskFontSize, weight: .medium))
@@ -51,11 +54,7 @@ struct TaskRow: View {
                             cancelEdit()
                         }
                 } else {
-                    Text(task.title)
-                        .font(.system(size: taskFontSize, weight: .medium))
-                        .foregroundStyle(taskTitleColor)
-                        .strikethrough(task.isDone, color: taskTitleColor)
-                        .fixedSize(horizontal: false, vertical: true)
+                    formattedTitle
                         .onTapGesture(count: 2) {
                             startEdit()
                         }
@@ -162,6 +161,11 @@ struct TaskRow: View {
             editTrigger = false
         }
         .onChange(of: isEditing) { _, isEditing in
+            if isEditing {
+                newlineKeyMonitor.start()
+            } else {
+                newlineKeyMonitor.stop()
+            }
             onEditingChanged(isEditing)
         }
         .onChange(of: isTitleFocused) { _, focused in
@@ -171,7 +175,40 @@ struct TaskRow: View {
         }
         .onDisappear {
             attachmentPreviewTimer.cancel()
+            newlineKeyMonitor.stop()
         }
+    }
+
+    /// The title with its light Markdown shown as formatting (see
+    /// TaskTitleFormat). A one-line title is a single Text, as before.
+    @ViewBuilder
+    private var formattedTitle: some View {
+        let lines = TaskTitleFormat.lines(from: task.title)
+        if lines.count == 1, lines[0].isBullet == false {
+            titleText(lines[0].text)
+        } else {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(lines.indices, id: \.self) { index in
+                    let line = lines[index]
+                    if line.isBullet {
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            titleText(AttributedString("•"))
+                            titleText(line.text)
+                        }
+                    } else {
+                        titleText(line.text)
+                    }
+                }
+            }
+        }
+    }
+
+    private func titleText(_ text: AttributedString) -> some View {
+        Text(text)
+            .font(.system(size: taskFontSize, weight: .medium))
+            .foregroundStyle(taskTitleColor)
+            .strikethrough(task.isDone, color: taskTitleColor)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     /// A drawn circle, not a Button: clicking anywhere on the row already
