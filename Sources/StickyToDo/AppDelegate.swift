@@ -257,21 +257,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
 
+    /// Always shown: it's the way back in when the Dock icon is off.
     private func updateStatusItemVisibility() {
-        statusItemController.setVisible(settings.showInMenuBar)
+        statusItemController.setVisible(true)
     }
 
     private func bindSettingsObservers() {
-        settings.$showInMenuBar
-            .dropFirst()
-            .sink { [weak self] _ in
-                guard let self else { return }
-                DispatchQueue.main.async {
-                    self.updateStatusItemVisibility()
-                }
-            }
-            .store(in: &cancellables)
-
         settings.$launchAtLogin
             .dropFirst()
             .sink { [weak self] isEnabled in
