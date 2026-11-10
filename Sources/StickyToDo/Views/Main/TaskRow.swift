@@ -323,20 +323,10 @@ struct TaskRow: View {
         }
     }
 
-    /// Shown while an image is dragged over the row: an accent outline, and
-    /// "Drop to attach" when the task has no image yet.
+    /// Shown while an image is dragged over the row: an accent outline.
     private var imageDropHint: some View {
         RoundedRectangle(cornerRadius: 16, style: .continuous)
             .strokeBorder(cardColors.accent ?? Theme.accent, lineWidth: 1.5)
-            .overlay(alignment: .bottomTrailing) {
-                if task.hasAttachments == false {
-                    Text("Drop to attach")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Theme.secondaryText)
-                        .padding(.horizontal, 12)
-                        .padding(.bottom, 6)
-                }
-            }
             .allowsHitTesting(false)
             .transition(.opacity)
     }
