@@ -15,6 +15,9 @@ final class UserDefaultsPersistence: LibraryPersistence {
     private var lastSavedCategoryData: Data?
     private var lastSavedHistoryData: Data?
 
+    /// Never called: nothing else writes this Mac's UserDefaults list.
+    var onExternalChange: ((LibrarySnapshot) -> Void)?
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
     }

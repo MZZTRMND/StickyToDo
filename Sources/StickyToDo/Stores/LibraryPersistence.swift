@@ -13,8 +13,8 @@ struct LibrarySnapshot: Equatable {
 
 /// Where the task list is kept. TaskStore owns the list and its editing
 /// rules; a persistence only reads and writes snapshots of it, so the list
-/// can live on this Mac (UserDefaultsPersistence) or somewhere shared
-/// without TaskStore knowing the difference.
+/// can live on this Mac (UserDefaultsPersistence) or in a folder other Macs
+/// share (FolderPersistence) without TaskStore knowing the difference.
 protocol LibraryPersistence: AnyObject {
     /// The saved list, or an empty one if nothing has been saved yet or it
     /// can't be read.
@@ -23,4 +23,9 @@ protocol LibraryPersistence: AnyObject {
     /// Saves the list. Called after every change, so implementations should
     /// skip writes that wouldn't change anything.
     func save(_ snapshot: LibrarySnapshot)
+
+    /// Set by TaskStore. Called on the main thread with the stored list when
+    /// it may hold changes made elsewhere - another Mac - for TaskStore to
+    /// merge in. Storage only this Mac uses never calls it.
+    var onExternalChange: ((LibrarySnapshot) -> Void)? { get set }
 }

@@ -34,8 +34,11 @@ final class TaskStore: ObservableObject {
     ) {
         self.persistence = persistence
         self.attachmentStore = attachmentStore
-        load()
+        replaceList(with: persistence.load())
         updateDerivedState()
+        persistence.onExternalChange = { [weak self] stored in
+            self?.mergeStoredList(stored)
+        }
     }
 
     @discardableResult
@@ -267,28 +270,30 @@ final class TaskStore: ObservableObject {
         return staleTasks.count
     }
 
-    private func load() {
+    /// Merges in the stored list after another Mac changed it.
+    private func mergeStoredList(_ stored: LibrarySnapshot) {
+        replaceList(with: LibraryMerger.merge(local: saved, remote: stored))
+    }
+
+    /// Shows `snapshot` as the list, tidied up: tasks lose categories that
+    /// no longer exist, and completed tasks from earlier days are cleared.
+    /// The tidying is saved; the snapshot itself already is.
+    private func replaceList(with snapshot: LibrarySnapshot) {
+        guard snapshot != saved else { return }
         isLoading = true
-        defer { isLoading = false }
+        saved = snapshot
+        tasks = snapshot.tasks
+        categories = snapshot.categories
 
-        let loaded = persistence.load()
-        saved = loaded
-        tasks = loaded.tasks
-        categories = loaded.categories
-
-        // Ensure old references to removed categories are cleaned up.
         let existingCategoryIDs = Set(categories.map(\.id))
-        for index in tasks.indices where tasks[index].categoryID != nil {
-            guard let categoryID = tasks[index].categoryID else { continue }
-            if existingCategoryIDs.contains(categoryID) == false {
+        for index in tasks.indices {
+            if let categoryID = tasks[index].categoryID, existingCategoryIDs.contains(categoryID) == false {
                 tasks[index].categoryID = nil
             }
         }
-
         purgeStaleCompletedTasks()
+        isLoading = false
 
-        // The cleanup above runs while loading, so it isn't saved by the
-        // didSets; save it here (a no-op if it changed nothing).
         save()
     }
 

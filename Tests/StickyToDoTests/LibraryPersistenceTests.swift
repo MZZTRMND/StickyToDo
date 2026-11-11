@@ -5,6 +5,7 @@ import XCTest
 private final class InMemoryPersistence: LibraryPersistence {
     var stored: LibrarySnapshot
     private(set) var saveCount = 0
+    var onExternalChange: ((LibrarySnapshot) -> Void)?
 
     init(_ stored: LibrarySnapshot = .empty) {
         self.stored = stored
