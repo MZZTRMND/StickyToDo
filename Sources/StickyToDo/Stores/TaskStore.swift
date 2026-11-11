@@ -21,8 +21,8 @@ final class TaskStore: ObservableObject {
     @Published private(set) var taskCount: Int = 0
     @Published private(set) var completedTaskCount: Int = 0
 
-    private let persistence: LibraryPersistence
-    private let attachmentStore: AttachmentStore
+    private var persistence: LibraryPersistence
+    private var attachmentStore: AttachmentStore
     private var isLoading = false
     /// The list as last loaded or saved, with its change history: what the
     /// next save is compared against to see what changed.
@@ -36,6 +36,35 @@ final class TaskStore: ObservableObject {
         self.attachmentStore = attachmentStore
         replaceList(with: persistence.load())
         updateDerivedState()
+        followExternalChanges()
+    }
+
+    /// Moves the list to other storage - turning iCloud Drive sync on or off.
+    /// The list there is merged with this one rather than replaced, so a Mac
+    /// joining a synced list keeps its own tasks and picks up the others',
+    /// and images are copied over. Nothing is deleted from the old storage.
+    func moveStorage(to newPersistence: LibraryPersistence, attachments newAttachmentStore: AttachmentStore) {
+        persistence.onExternalChange = nil
+        persistence.close()
+
+        let merged = LibraryMerger.merge(local: saved, remote: newPersistence.load())
+        newAttachmentStore.copyMissingFiles(for: merged.tasks.flatMap(\.attachmentIDs), from: attachmentStore)
+
+        persistence = newPersistence
+        attachmentStore = newAttachmentStore
+        replaceList(with: merged)
+        // replaceList only saves its own tidying; the new storage needs the
+        // whole merged list.
+        persistence.save(saved)
+        followExternalChanges()
+    }
+
+    /// Finishes writing the list - before the app quits.
+    func closeStorage() {
+        persistence.close()
+    }
+
+    private func followExternalChanges() {
         persistence.onExternalChange = { [weak self] stored in
             self?.mergeStoredList(stored)
         }

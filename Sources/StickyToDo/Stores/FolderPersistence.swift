@@ -93,9 +93,14 @@ final class FolderPersistence: NSObject, LibraryPersistence, NSFilePresenter {
         }
     }
 
-    /// Waits until every save so far is written - before the app quits.
+    /// Waits until every save so far is written.
     func flush() {
         ioQueue.sync {}
+    }
+
+    func close() {
+        stopWatching()
+        flush()
     }
 
     /// Re-reads the folder and reports any change made elsewhere.

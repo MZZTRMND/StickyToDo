@@ -28,4 +28,8 @@ protocol LibraryPersistence: AnyObject {
     /// it may hold changes made elsewhere - another Mac - for TaskStore to
     /// merge in. Storage only this Mac uses never calls it.
     var onExternalChange: ((LibrarySnapshot) -> Void)? { get set }
+
+    /// Finishes writing and stops following outside changes - when the app
+    /// quits or the list moves elsewhere. Nothing may be saved after it.
+    func close()
 }

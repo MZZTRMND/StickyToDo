@@ -132,6 +132,19 @@ final class AttachmentStore {
         thumbnailCache[id]
     }
 
+    /// Copies these images (and their thumbnails) from `source` when this
+    /// store doesn't have them yet - when the task list moves to another
+    /// folder. The originals stay where they were.
+    func copyMissingFiles(for ids: [UUID], from source: AttachmentStore) {
+        let fileManager = FileManager.default
+        for id in ids {
+            for (from, to) in [(source.url(for: id), url(for: id)), (source.thumbnailURL(for: id), thumbnailURL(for: id))]
+            where fileManager.fileExists(atPath: to.path) == false {
+                try? fileManager.copyItem(at: from, to: to)
+            }
+        }
+    }
+
     func delete(id: UUID) {
         thumbnailCache[id] = nil
         try? FileManager.default.removeItem(at: url(for: id))

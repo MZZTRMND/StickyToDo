@@ -18,6 +18,9 @@ final class UserDefaultsPersistence: LibraryPersistence {
     /// Never called: nothing else writes this Mac's UserDefaults list.
     var onExternalChange: ((LibrarySnapshot) -> Void)?
 
+    /// Nothing to do: saves are written right away.
+    func close() {}
+
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
     }
