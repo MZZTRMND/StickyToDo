@@ -1,11 +1,12 @@
 import Foundation
 
 /// Everything StickyToDo saves about the task list: the tasks, in their
-/// order, and the categories. Image files are separate (AttachmentStore);
-/// tasks only refer to them by id.
+/// order, the categories, and when each of them changed. Image files are
+/// separate (AttachmentStore); tasks only refer to them by id.
 struct LibrarySnapshot: Equatable {
     var tasks: [TaskItem]
     var categories: [TaskCategory]
+    var history = ChangeHistory()
 
     static let empty = LibrarySnapshot(tasks: [], categories: [])
 }

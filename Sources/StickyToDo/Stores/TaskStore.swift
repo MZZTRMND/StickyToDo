@@ -24,6 +24,9 @@ final class TaskStore: ObservableObject {
     private let persistence: LibraryPersistence
     private let attachmentStore: AttachmentStore
     private var isLoading = false
+    /// The list as last loaded or saved, with its change history: what the
+    /// next save is compared against to see what changed.
+    private var saved = LibrarySnapshot.empty
 
     init(
         persistence: LibraryPersistence = UserDefaultsPersistence(),
@@ -264,15 +267,12 @@ final class TaskStore: ObservableObject {
         return staleTasks.count
     }
 
-    private var snapshot: LibrarySnapshot {
-        LibrarySnapshot(tasks: tasks, categories: categories)
-    }
-
     private func load() {
         isLoading = true
         defer { isLoading = false }
 
         let loaded = persistence.load()
+        saved = loaded
         tasks = loaded.tasks
         categories = loaded.categories
 
@@ -288,14 +288,17 @@ final class TaskStore: ObservableObject {
         purgeStaleCompletedTasks()
 
         // The cleanup above runs while loading, so it isn't saved by the
-        // didSets; save it here if it changed anything.
-        if snapshot != loaded {
-            save()
-        }
+        // didSets; save it here (a no-op if it changed nothing).
+        save()
     }
 
+    /// Saves the list if it changed since the last save, recording what
+    /// changed and when.
     private func save() {
-        persistence.save(snapshot)
+        let current = LibrarySnapshot(tasks: tasks, categories: categories, history: saved.history)
+        guard current != saved else { return }
+        saved = current.recordingChanges(since: saved, at: Date())
+        persistence.save(saved)
     }
 
     private func updateDerivedState() {

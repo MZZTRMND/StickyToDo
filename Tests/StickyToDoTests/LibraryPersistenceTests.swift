@@ -60,9 +60,39 @@ final class LibraryPersistenceTests: XCTestCase {
             categories: [category]
         )
 
-        UserDefaultsPersistence(defaults: defaults).save(snapshot)
+        var withHistory = snapshot
+        withHistory.history.modifiedAt = [category.id: Date(timeIntervalSinceReferenceDate: 100)]
+        withHistory.history.deletedAt = [UUID(): Date(timeIntervalSinceReferenceDate: 200)]
+        withHistory.history.taskOrderModifiedAt = Date(timeIntervalSinceReferenceDate: 300)
 
-        XCTAssertEqual(UserDefaultsPersistence(defaults: defaults).load(), snapshot)
+        UserDefaultsPersistence(defaults: defaults).save(withHistory)
+
+        XCTAssertEqual(UserDefaultsPersistence(defaults: defaults).load(), withHistory)
+    }
+
+    func testStoreRecordsWhatChanged() {
+        let persistence = InMemoryPersistence()
+        let store = makeStore(persistence)
+
+        let kept = store.addTask(title: "Keep")!
+        let removed = store.addTask(title: "Remove")!
+        store.delete(removed)
+
+        XCTAssertNotNil(persistence.stored.history.modifiedAt[kept.id])
+        XCTAssertNil(persistence.stored.history.modifiedAt[removed.id])
+        XCTAssertNotNil(persistence.stored.history.deletedAt[removed.id])
+    }
+
+    func testHistoryCarriesOverBetweenLaunches() {
+        let persistence = InMemoryPersistence()
+        let first = makeStore(persistence)
+        let task = first.addTask(title: "Task")!
+        let stamped = persistence.stored.history.modifiedAt[task.id]
+
+        let second = makeStore(persistence)
+        second.addTask(title: "Another")
+
+        XCTAssertEqual(persistence.stored.history.modifiedAt[task.id], stamped)
     }
 
     func testMissingOrUnreadableDataLoadsEmpty() {
@@ -82,7 +112,8 @@ final class LibraryPersistenceTests: XCTestCase {
         let category = store.createCategory(name: "Trip")
         store.assignCategory(category?.id, to: store.tasks[0])
 
-        XCTAssertEqual(persistence.stored, LibrarySnapshot(tasks: store.tasks, categories: store.categories))
+        XCTAssertEqual(persistence.stored.tasks, store.tasks)
+        XCTAssertEqual(persistence.stored.categories, store.categories)
         XCTAssertEqual(persistence.stored.tasks.first?.categoryID, category?.id)
     }
 
