@@ -7,30 +7,29 @@ final class TaskStore: ObservableObject {
         didSet {
             updateDerivedState()
             guard isLoading == false else { return }
-            saveTasks()
+            save()
         }
     }
 
     @Published var categories: [TaskCategory] = [] {
         didSet {
             guard isLoading == false else { return }
-            saveCategories()
+            save()
         }
     }
 
     @Published private(set) var taskCount: Int = 0
     @Published private(set) var completedTaskCount: Int = 0
 
-    private let taskStorageKey = "StickyToDo.tasks"
-    private let categoryStorageKey = "StickyToDo.categories"
-    private let userDefaults: UserDefaults
+    private let persistence: LibraryPersistence
     private let attachmentStore: AttachmentStore
     private var isLoading = false
-    private var lastSavedTaskData: Data?
-    private var lastSavedCategoryData: Data?
 
-    init(userDefaults: UserDefaults = .standard, attachmentStore: AttachmentStore = AttachmentStore(savesInBackground: true)) {
-        self.userDefaults = userDefaults
+    init(
+        persistence: LibraryPersistence = UserDefaultsPersistence(),
+        attachmentStore: AttachmentStore = AttachmentStore(savesInBackground: true)
+    ) {
+        self.persistence = persistence
         self.attachmentStore = attachmentStore
         load()
         updateDerivedState()
@@ -265,29 +264,17 @@ final class TaskStore: ObservableObject {
         return staleTasks.count
     }
 
+    private var snapshot: LibrarySnapshot {
+        LibrarySnapshot(tasks: tasks, categories: categories)
+    }
+
     private func load() {
         isLoading = true
         defer { isLoading = false }
 
-        if let data = userDefaults.data(forKey: taskStorageKey) {
-            do {
-                tasks = try JSONDecoder().decode([TaskItem].self, from: data)
-            } catch {
-                tasks = []
-            }
-        } else {
-            tasks = []
-        }
-
-        if let data = userDefaults.data(forKey: categoryStorageKey) {
-            do {
-                categories = try JSONDecoder().decode([TaskCategory].self, from: data)
-            } catch {
-                categories = []
-            }
-        } else {
-            categories = []
-        }
+        let loaded = persistence.load()
+        tasks = loaded.tasks
+        categories = loaded.categories
 
         // Ensure old references to removed categories are cleaned up.
         let existingCategoryIDs = Set(categories.map(\.id))
@@ -298,34 +285,17 @@ final class TaskStore: ObservableObject {
             }
         }
 
-        if purgeStaleCompletedTasks() > 0 {
-            saveTasks()
-        }
+        purgeStaleCompletedTasks()
 
-        lastSavedTaskData = try? JSONEncoder().encode(tasks)
-        lastSavedCategoryData = try? JSONEncoder().encode(categories)
-    }
-
-    private func saveTasks() {
-        do {
-            let data = try JSONEncoder().encode(tasks)
-            guard data != lastSavedTaskData else { return }
-            userDefaults.set(data, forKey: taskStorageKey)
-            lastSavedTaskData = data
-        } catch {
-            // Keep running without crashing.
+        // The cleanup above runs while loading, so it isn't saved by the
+        // didSets; save it here if it changed anything.
+        if snapshot != loaded {
+            save()
         }
     }
 
-    private func saveCategories() {
-        do {
-            let data = try JSONEncoder().encode(categories)
-            guard data != lastSavedCategoryData else { return }
-            userDefaults.set(data, forKey: categoryStorageKey)
-            lastSavedCategoryData = data
-        } catch {
-            // Keep running without crashing.
-        }
+    private func save() {
+        persistence.save(snapshot)
     }
 
     private func updateDerivedState() {

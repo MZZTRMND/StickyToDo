@@ -23,7 +23,7 @@ final class CategoryUIStateTests: XCTestCase {
     }
 
     private func makeStore() -> TaskStore {
-        TaskStore(userDefaults: defaults, attachmentStore: AttachmentStore(directory: attachmentDirectory))
+        TaskStore(persistence: UserDefaultsPersistence(defaults: defaults), attachmentStore: AttachmentStore(directory: attachmentDirectory))
     }
 
     func testNewTaskGetsNoCategoryOnAllTab() {
