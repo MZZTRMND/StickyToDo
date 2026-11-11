@@ -7,33 +7,67 @@ final class TaskStore: ObservableObject {
         didSet {
             updateDerivedState()
             guard isLoading == false else { return }
-            saveTasks()
+            save()
         }
     }
 
     @Published var categories: [TaskCategory] = [] {
         didSet {
             guard isLoading == false else { return }
-            saveCategories()
+            save()
         }
     }
 
     @Published private(set) var taskCount: Int = 0
     @Published private(set) var completedTaskCount: Int = 0
 
-    private let taskStorageKey = "StickyToDo.tasks"
-    private let categoryStorageKey = "StickyToDo.categories"
-    private let userDefaults: UserDefaults
-    private let attachmentStore: AttachmentStore
+    private var persistence: LibraryPersistence
+    private var attachmentStore: AttachmentStore
     private var isLoading = false
-    private var lastSavedTaskData: Data?
-    private var lastSavedCategoryData: Data?
+    /// The list as last loaded or saved, with its change history: what the
+    /// next save is compared against to see what changed.
+    private var saved = LibrarySnapshot.empty
 
-    init(userDefaults: UserDefaults = .standard, attachmentStore: AttachmentStore = AttachmentStore(savesInBackground: true)) {
-        self.userDefaults = userDefaults
+    init(
+        persistence: LibraryPersistence = UserDefaultsPersistence(),
+        attachmentStore: AttachmentStore = AttachmentStore(savesInBackground: true)
+    ) {
+        self.persistence = persistence
         self.attachmentStore = attachmentStore
-        load()
+        replaceList(with: persistence.load())
         updateDerivedState()
+        followExternalChanges()
+    }
+
+    /// Moves the list to other storage - turning iCloud Drive sync on or off.
+    /// The list there is merged with this one rather than replaced, so a Mac
+    /// joining a synced list keeps its own tasks and picks up the others',
+    /// and images are copied over. Nothing is deleted from the old storage.
+    func moveStorage(to newPersistence: LibraryPersistence, attachments newAttachmentStore: AttachmentStore) {
+        persistence.onExternalChange = nil
+        persistence.close()
+
+        let merged = LibraryMerger.merge(local: saved, remote: newPersistence.load())
+        newAttachmentStore.copyMissingFiles(for: merged.tasks.flatMap(\.attachmentIDs), from: attachmentStore)
+
+        persistence = newPersistence
+        attachmentStore = newAttachmentStore
+        replaceList(with: merged)
+        // replaceList only saves its own tidying; the new storage needs the
+        // whole merged list.
+        persistence.save(saved)
+        followExternalChanges()
+    }
+
+    /// Finishes writing the list - before the app quits.
+    func closeStorage() {
+        persistence.close()
+    }
+
+    private func followExternalChanges() {
+        persistence.onExternalChange = { [weak self] stored in
+            self?.mergeStoredList(stored)
+        }
     }
 
     @discardableResult
@@ -265,67 +299,40 @@ final class TaskStore: ObservableObject {
         return staleTasks.count
     }
 
-    private func load() {
+    /// Merges in the stored list after another Mac changed it.
+    private func mergeStoredList(_ stored: LibrarySnapshot) {
+        replaceList(with: LibraryMerger.merge(local: saved, remote: stored))
+    }
+
+    /// Shows `snapshot` as the list, tidied up: tasks lose categories that
+    /// no longer exist, and completed tasks from earlier days are cleared.
+    /// The tidying is saved; the snapshot itself already is.
+    private func replaceList(with snapshot: LibrarySnapshot) {
+        guard snapshot != saved else { return }
         isLoading = true
-        defer { isLoading = false }
+        saved = snapshot
+        tasks = snapshot.tasks
+        categories = snapshot.categories
 
-        if let data = userDefaults.data(forKey: taskStorageKey) {
-            do {
-                tasks = try JSONDecoder().decode([TaskItem].self, from: data)
-            } catch {
-                tasks = []
-            }
-        } else {
-            tasks = []
-        }
-
-        if let data = userDefaults.data(forKey: categoryStorageKey) {
-            do {
-                categories = try JSONDecoder().decode([TaskCategory].self, from: data)
-            } catch {
-                categories = []
-            }
-        } else {
-            categories = []
-        }
-
-        // Ensure old references to removed categories are cleaned up.
         let existingCategoryIDs = Set(categories.map(\.id))
-        for index in tasks.indices where tasks[index].categoryID != nil {
-            guard let categoryID = tasks[index].categoryID else { continue }
-            if existingCategoryIDs.contains(categoryID) == false {
+        for index in tasks.indices {
+            if let categoryID = tasks[index].categoryID, existingCategoryIDs.contains(categoryID) == false {
                 tasks[index].categoryID = nil
             }
         }
+        purgeStaleCompletedTasks()
+        isLoading = false
 
-        if purgeStaleCompletedTasks() > 0 {
-            saveTasks()
-        }
-
-        lastSavedTaskData = try? JSONEncoder().encode(tasks)
-        lastSavedCategoryData = try? JSONEncoder().encode(categories)
+        save()
     }
 
-    private func saveTasks() {
-        do {
-            let data = try JSONEncoder().encode(tasks)
-            guard data != lastSavedTaskData else { return }
-            userDefaults.set(data, forKey: taskStorageKey)
-            lastSavedTaskData = data
-        } catch {
-            // Keep running without crashing.
-        }
-    }
-
-    private func saveCategories() {
-        do {
-            let data = try JSONEncoder().encode(categories)
-            guard data != lastSavedCategoryData else { return }
-            userDefaults.set(data, forKey: categoryStorageKey)
-            lastSavedCategoryData = data
-        } catch {
-            // Keep running without crashing.
-        }
+    /// Saves the list if it changed since the last save, recording what
+    /// changed and when.
+    private func save() {
+        let current = LibrarySnapshot(tasks: tasks, categories: categories, history: saved.history)
+        guard current != saved else { return }
+        saved = current.recordingChanges(since: saved, at: Date())
+        persistence.save(saved)
     }
 
     private func updateDerivedState() {

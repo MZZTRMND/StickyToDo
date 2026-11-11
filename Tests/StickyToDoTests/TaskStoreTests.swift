@@ -27,7 +27,7 @@ final class TaskStoreTests: XCTestCase {
     }
 
     private func makeStore() -> TaskStore {
-        TaskStore(userDefaults: defaults, attachmentStore: attachmentStore)
+        TaskStore(persistence: UserDefaultsPersistence(defaults: defaults), attachmentStore: attachmentStore)
     }
 
     private func makeTestImage() -> NSImage {
@@ -279,7 +279,7 @@ final class TaskStoreTests: XCTestCase {
 
     func testImagesSavedTogetherInTheBackgroundStopAtFour() {
         let backgroundAttachments = AttachmentStore(directory: attachmentDirectory, savesInBackground: true)
-        let store = TaskStore(userDefaults: defaults, attachmentStore: backgroundAttachments)
+        let store = TaskStore(persistence: UserDefaultsPersistence(defaults: defaults), attachmentStore: backgroundAttachments)
         store.addTask(title: "Task")
         // Six drops at once: all start while the task still has room.
         for _ in 0..<6 {
@@ -391,7 +391,7 @@ final class TaskStoreTests: XCTestCase {
     }
     func testImageFinishingAfterItsTaskWasDeletedIsCleanedUp() {
         let backgroundAttachments = AttachmentStore(directory: attachmentDirectory, savesInBackground: true)
-        let store = TaskStore(userDefaults: defaults, attachmentStore: backgroundAttachments)
+        let store = TaskStore(persistence: UserDefaultsPersistence(defaults: defaults), attachmentStore: backgroundAttachments)
         store.addTask(title: "Task")
         store.addAttachment(makeTestImage(), to: store.tasks[0])
         store.delete(store.tasks[0])

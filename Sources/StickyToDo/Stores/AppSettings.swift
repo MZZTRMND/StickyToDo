@@ -75,6 +75,17 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    /// Keeps the task list in iCloud Drive, shared with the user's other
+    /// Macs. @Published because AppDelegate moves the list when it changes.
+    @Published var syncWithICloud: Bool {
+        didSet {
+            UserDefaults.standard.set(syncWithICloud, forKey: Self.syncWithICloudKey)
+        }
+    }
+
+    /// iCloud Drive is turned on for this Mac, so syncing is possible.
+    var isICloudDriveAvailable: Bool { LibraryLocation.iCloudDriveFolder() != nil }
+
     var preferredColorScheme: ColorScheme? {
         switch appearance {
         case .system: nil
@@ -93,6 +104,7 @@ final class AppSettings: ObservableObject {
     private static let pinnedOnTopKey = "StickyToDo.pinnedOnTop"
     private static let cardStyleKey = "StickyToDo.cardStyle"
     private static let cardWidthKey = "StickyToDo.cardWidth"
+    private static let syncWithICloudKey = "StickyToDo.syncWithICloud"
 
     private init() {
         let defaults = UserDefaults.standard
@@ -104,6 +116,7 @@ final class AppSettings: ObservableObject {
         launchAtLogin = storedBool(forKey: Self.launchAtLoginKey, default: false)
         showInDock = storedBool(forKey: Self.showInDockKey, default: true)
         isPinnedOnTop = storedBool(forKey: Self.pinnedOnTopKey, default: false)
+        syncWithICloud = storedBool(forKey: Self.syncWithICloudKey, default: false)
 
         let storedTaskFontSize = defaults.object(forKey: Self.taskFontSizeKey) == nil
             ? 18

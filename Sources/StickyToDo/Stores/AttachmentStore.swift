@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 /// Reads/writes attachment images as PNG files on disk, keyed by UUID.
 /// Tasks only carry a UUID reference (TaskItem.attachmentIDs); the image
-/// bytes never touch the UserDefaults-backed task JSON blob.
+/// bytes never touch the saved task list (LibraryPersistence).
 ///
 /// Next to each image it keeps a small thumbnail for the hover preview, so
 /// the card never decodes a full-size image (a 5K screenshot took ~150 ms
@@ -130,6 +130,19 @@ final class AttachmentStore {
     /// The thumbnail if it's already loaded; never touches the disk.
     func cachedThumbnail(for id: UUID) -> NSImage? {
         thumbnailCache[id]
+    }
+
+    /// Copies these images (and their thumbnails) from `source` when this
+    /// store doesn't have them yet - when the task list moves to another
+    /// folder. The originals stay where they were.
+    func copyMissingFiles(for ids: [UUID], from source: AttachmentStore) {
+        let fileManager = FileManager.default
+        for id in ids {
+            for (from, to) in [(source.url(for: id), url(for: id)), (source.thumbnailURL(for: id), thumbnailURL(for: id))]
+            where fileManager.fileExists(atPath: to.path) == false {
+                try? fileManager.copyItem(at: from, to: to)
+            }
+        }
     }
 
     func delete(id: UUID) {

@@ -12,7 +12,12 @@ final class KeyablePanel: NSPanel {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let settings = AppSettings.shared
-    private let store = TaskStore()
+    /// Where the task list lives now: on this Mac, or in iCloud Drive.
+    private var libraryLocation = LibraryLocation.current(syncWithICloud: AppSettings.shared.syncWithICloud)
+    private lazy var store: TaskStore = {
+        let storage = libraryLocation.makeStorage()
+        return TaskStore(persistence: storage.persistence, attachmentStore: storage.attachments)
+    }()
     // Owned here rather than by ContentView so quick-add (which lives in its
     // own overlay window) can see which category tab is selected.
     private let categoryUI = CategoryUIState()
@@ -86,6 +91,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         hotKeyManager.unregister()
+        store.closeStorage()
     }
 
     /// macOS treats the first submenu of mainMenu as the Application menu,
@@ -280,6 +286,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             .store(in: &cancellables)
 
+        settings.$syncWithICloud
+            .dropFirst()
+            .sink { [weak self] _ in
+                // Same as below: read the new value on the next run loop.
+                DispatchQueue.main.async {
+                    self?.applyLibraryLocation()
+                }
+            }
+            .store(in: &cancellables)
+
         settings.$isPinnedOnTop
             .dropFirst()
             .sink { [weak self] _ in
@@ -290,6 +306,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
             .store(in: &cancellables)
+    }
+
+    /// Moves the task list to iCloud Drive or back to this Mac, following
+    /// the Sync setting.
+    private func applyLibraryLocation() {
+        let location = LibraryLocation.current(syncWithICloud: settings.syncWithICloud)
+        guard location != libraryLocation else { return }
+        libraryLocation = location
+        let storage = location.makeStorage()
+        store.moveStorage(to: storage.persistence, attachments: storage.attachments)
     }
 
     /// .regular: Dock icon, ⌘Tab, menu bar menus. .accessory: none of

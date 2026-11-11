@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// StickyToDo's settings, laid out like Cubby's: three short groups - how the
-/// card behaves, how the app looks and where it shows up, and a way into the
-/// Customize window - with explanations in the group footers.
+/// StickyToDo's settings, laid out like Cubby's: short groups - how the card
+/// behaves, how the app looks and where it shows up, iCloud sync, and a way
+/// into the Customize window - with explanations in the group footers.
 struct SettingsView: View {
     @EnvironmentObject private var settings: AppSettings
 
@@ -35,6 +35,17 @@ struct SettingsView: View {
                 Toggle("Show in Dock", isOn: $settings.showInDock)
             } footer: {
                 footnote("StickyToDo is always in the menu bar.")
+            }
+
+            Section {
+                Toggle("Sync with iCloud Drive", isOn: $settings.syncWithICloud)
+                    .disabled(settings.isICloudDriveAvailable == false)
+            } footer: {
+                if settings.isICloudDriveAvailable {
+                    footnote("Keeps your tasks in iCloud Drive \u{203A} \(LibraryLocation.iCloudDriveFolder()?.lastPathComponent ?? "StickyToDo"), so every Mac signed in to your Apple Account shows the same list.")
+                } else {
+                    footnote("Turn on iCloud Drive in System Settings to sync your tasks between Macs.")
+                }
             }
 
             Section {
