@@ -1,6 +1,6 @@
 # StickyToDo
 
-A tiny floating to-do card for macOS. Today's tasks stay in view, quick add works from anywhere with `⌥⌘N`, and everything stays on your Mac.
+A tiny floating to-do card for macOS. Today's tasks stay in view, quick add works from anywhere with `⌥⌘N`, and your list can follow you to your other Macs through iCloud Drive.
 
 <!-- width = half the @2x pixels, i.e. true size. -->
 <p align="center">
@@ -23,7 +23,18 @@ Requires macOS 26 or later on an Apple Silicon Mac.
 - **Categories.** Tabs to filter tasks, and a category picker right in the quick-add field
 - **Fresh every day.** Yesterday's completed tasks are cleared away
 - **Native look.** Liquid Glass, light and dark mode, adjustable text size
-- **Private.** No account, no cloud. Your tasks never leave your Mac
+- **Sync between Macs.** Optional iCloud Drive sync keeps the same list on every Mac you use
+- **Private.** No account and no servers. Your tasks stay on your Mac, or in your own iCloud Drive if you turn on sync
+
+## Sync with iCloud Drive
+
+Turn on **Sync with iCloud Drive** in Settings to keep your tasks, categories and images in **iCloud Drive › StickyToDo**. Every Mac signed in to the same Apple Account with the setting on shows the same list, and changes from another Mac appear within seconds.
+
+- **Setting up a new Mac:** install StickyToDo, turn on the setting, and your list appears. Anything already on that Mac is kept and combined with it.
+- **Editing on two Macs:** each task keeps its latest edit, deleted tasks stay deleted, and tasks added on either Mac are all kept.
+- **Turning sync off:** the list moves back to this Mac only, including everything added while syncing. Nothing is removed from iCloud Drive.
+
+iCloud Drive must be on in System Settings. With **Optimize Mac Storage** on, an image can take a moment to show while macOS downloads it.
 
 ## Tips
 
@@ -50,7 +61,7 @@ StickyToDo/
 ├── Sources/StickyToDo/
 │   ├── AppKit/     # Window, drag, hotkey, menu bar and drop helpers
 │   ├── Models/     # TaskItem, TaskCategory
-│   ├── Stores/     # Tasks, categories, settings, attachments
+│   ├── Stores/     # Tasks, categories, settings, attachments, iCloud sync
 │   ├── Support/    # Theme and small utilities
 │   └── Views/      # Main window, quick add, settings
 ├── Tests/StickyToDoTests/
