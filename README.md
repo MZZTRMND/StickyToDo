@@ -16,10 +16,6 @@ A tiny floating to-do card for macOS. Today's tasks stay in view, quick add work
 
 Requires macOS 26 or later on an Apple Silicon Mac.
 
-### Coming from StickyToDo
-
-Notatka used to be called StickyToDo. The first time Notatka opens, it brings over your tasks, categories, images and settings, including your iCloud Drive list if sync is on. StickyToDo's own data is left untouched as a backup. Quit StickyToDo before opening Notatka, since both use `⌥⌘N`, and update every Mac you sync, because StickyToDo keeps saving to its old iCloud Drive folder.
-
 ## Features
 
 - **Always at hand.** A small floating card with today's date and your tasks
