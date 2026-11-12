@@ -2,21 +2,21 @@
 import PackageDescription
 
 let package = Package(
-    name: "StickyToDo",
+    name: "Notatka",
     platforms: [.macOS(.v26)],
     products: [
-        .executable(name: "StickyToDo", targets: ["StickyToDo"])
+        .executable(name: "Notatka", targets: ["Notatka"])
     ],
     targets: [
         .executableTarget(
-            name: "StickyToDo",
-            path: "Sources/StickyToDo",
+            name: "Notatka",
+            path: "Sources/Notatka",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .testTarget(
-            name: "StickyToDoTests",
-            dependencies: ["StickyToDo"],
-            path: "Tests/StickyToDoTests"
+            name: "NotatkaTests",
+            dependencies: ["Notatka"],
+            path: "Tests/NotatkaTests"
         )
     ]
 )

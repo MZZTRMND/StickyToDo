@@ -1,4 +1,4 @@
-# StickyToDo performance: what can be done and why
+# Notatka performance: what can be done and why
 
 Investigated 2026-11-05 on the `feature/scroll-performance` branch (scrolling
 and check-off already fixed there). Numbers come from a benchmark that draws

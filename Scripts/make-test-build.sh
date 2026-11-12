@@ -1,8 +1,8 @@
 #!/bin/bash
-# Builds StickyToDo-Test.app: a throwaway copy of the app for trying out
+# Builds Notatka-Test.app: a throwaway copy of the app for trying out
 # changes without touching the real one.
 #
-# The test build uses bundle id com.sticky.todo.test, which gives it its own
+# The test build uses bundle id com.notatka.app.test, which gives it its own
 # UserDefaults domain - so seeding, wiping and stress-testing its task list
 # cannot affect the real app's data. Run the real app only once a change has
 # been confirmed here.
@@ -10,8 +10,8 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-TEST_APP="StickyToDo-Test.app"
-TEST_BUNDLE_ID="com.sticky.todo.test"
+TEST_APP="Notatka-Test.app"
+TEST_BUNDLE_ID="com.notatka.app.test"
 
 echo "==> Building release binary"
 swift build -c release
@@ -23,13 +23,13 @@ BIN_PATH="$(swift build -c release --show-bin-path)"
 
 echo "==> Assembling $TEST_APP"
 rm -rf "$TEST_APP"
-cp -R StickyToDo.app "$TEST_APP"
-cp "$BIN_PATH/StickyToDo" "$TEST_APP/Contents/MacOS/StickyToDo"
+cp -R Notatka.app "$TEST_APP"
+cp "$BIN_PATH/Notatka" "$TEST_APP/Contents/MacOS/Notatka"
 
 PLIST="$TEST_APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $TEST_BUNDLE_ID" "$PLIST"
-/usr/libexec/PlistBuddy -c "Set :CFBundleName StickyToDo Test" "$PLIST"
-/usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName StickyToDo Test" "$PLIST"
+/usr/libexec/PlistBuddy -c "Set :CFBundleName Notatka Test" "$PLIST"
+/usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Notatka Test" "$PLIST"
 
 echo "==> Signing"
 codesign --force --deep -s - "$TEST_APP" 2>/dev/null

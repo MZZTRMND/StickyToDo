@@ -2,8 +2,8 @@
 # Builds AppIcon.icns from Assets/AppIcon.svg and installs it into the given
 # app bundles, re-signing each one.
 #
-#   ./Scripts/make-icon.sh StickyToDo-Test.app
-#   ./Scripts/make-icon.sh StickyToDo.app
+#   ./Scripts/make-icon.sh Notatka-Test.app
+#   ./Scripts/make-icon.sh Notatka.app
 #
 # The SVG is rendered with WebKit (qlmanage) because AppKit's built-in SVG
 # support skips the drop-shadow filter; make-icon.swift then cuts the corners,
